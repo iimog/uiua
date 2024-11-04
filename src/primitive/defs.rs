@@ -2508,9 +2508,9 @@ primitive!(
     /// [fill][pop] can be used to temporarily remove the fill value.
     /// ex: ⬚0  ↻ 2 [1 2 3 4 5]
     ///   : ⬚0⬚◌↻ 2 [1 2 3 4 5]
-    /// This *does* affect [un][pop].
+    /// This does not affect [un][pop].
     /// ex: ⬚0  °◌
-    /// ex! ⬚0⬚◌°◌
+    /// ex: ⬚0⬚◌°◌
     ///
     /// [fill] and [un][pop] can be used to make a sort of ad-hoc variable system.
     /// ex: a ← (°□⊡0°◌)

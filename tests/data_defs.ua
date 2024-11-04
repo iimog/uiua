@@ -27,6 +27,9 @@
 ~Foo [x] +x
 ⍤⤙≍ 8 Foo 3 5
 
+~Foo [x] ⊟ x /+ 1_2_3
+⍤⤙≍ [10 6] Foo 10
+
 ~Foo [Bar Baz ← +]
 ⍤⤙≍ [5 5] Foo 5 2 3
 

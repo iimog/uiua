@@ -416,15 +416,16 @@ impl Compiler {
                 }
                 let filled = comp.words_sig(words)?;
                 let span = comp.add_span(word_span.clone());
-                let node = Node::Mod(
+                let fill_construct = SigNode::new(
+                    Node::Call(constructor_func.clone(), span),
+                    constructor_func.sig,
+                );
+                let fill_pop = Node::Prim(Primitive::Pop, span).sig_node().unwrap();
+                let mut node = Node::Mod(Primitive::Fill, eco_vec![fill_pop, filled], span);
+                let sig = comp.sig_of(&node, &word_span)?;
+                node = Node::Mod(
                     Primitive::Fill,
-                    eco_vec![
-                        SigNode::new(
-                            Node::Call(constructor_func.clone(), span),
-                            constructor_func.sig
-                        ),
-                        filled
-                    ],
+                    eco_vec![fill_construct, SigNode::new(node, sig)],
                     span,
                 );
                 let sig = comp.sig_of(&node, &word_span)?;

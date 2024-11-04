@@ -1306,23 +1306,17 @@ at {}",
         but: impl FnOnce(&mut Self) -> UiuaResult,
         in_ctx: impl FnOnce(&mut Self) -> UiuaResult,
     ) -> UiuaResult {
-        let fills = self
-            .rt
-            .fill_stack
-            .split_off(self.rt.fill_stack.len().max(n) - n);
+        let fills = self.rt.fill_stack[self.rt.fill_stack.len().max(n) - n..].to_vec();
         if fills.len() < n {
             for _ in 0..n - fills.len() {
                 self.push(Value::default());
             }
         }
-        for value in fills.iter().rev().cloned() {
+        for value in fills.into_iter().rev() {
             self.push(value);
         }
-        let res1 = but(self);
-        let res2 = in_ctx(self);
-        self.rt.fill_stack.extend(fills.into_iter().rev());
-        res1?;
-        res2
+        but(self)?;
+        self.without_fill(|env| in_ctx(env))
     }
     pub(crate) fn without_unfill_but(
         &mut self,
@@ -1330,23 +1324,17 @@ at {}",
         but: impl FnOnce(&mut Self) -> UiuaResult,
         in_ctx: impl FnOnce(&mut Self) -> UiuaResult,
     ) -> UiuaResult {
-        let fills = self
-            .rt
-            .unfill_stack
-            .split_off(self.rt.unfill_stack.len().max(n) - n);
+        let fills = self.rt.unfill_stack[self.rt.unfill_stack.len().max(n) - n..].to_vec();
         if fills.len() < n {
             for _ in 0..n - fills.len() {
                 self.push(Value::default());
             }
         }
-        for value in fills.iter().rev().cloned() {
+        for value in fills.into_iter().rev() {
             self.push(value);
         }
-        let res1 = but(self);
-        let res2 = in_ctx(self);
-        self.rt.unfill_stack.extend(fills.into_iter().rev());
-        res1?;
-        res2
+        but(self)?;
+        self.without_fill(|env| in_ctx(env))
     }
     pub(crate) fn call_frames(&self) -> impl DoubleEndedIterator<Item = &StackFrame> {
         self.rt.call_stack.iter()
