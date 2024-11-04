@@ -73,6 +73,7 @@ static OPTIMIZATIONS: &[&dyn Optimization] = &[
     &((SortDown, Reverse), Sort),
     &((Pop, Rand), ReplaceRand),
     &((Pop, Pop, Rand), ReplaceRand2),
+    &((1, Flip, Div, Pow), Root),
     &InlineCustomInverse,
     &TransposeOpt,
     &ReduceTableOpt,

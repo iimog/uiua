@@ -242,6 +242,7 @@ impl fmt::Display for ImplPrimitive {
             Adjacent => write!(f, "{Rows}{Reduce}(…){Windows}"),
             RowsWindows => write!(f, "{Rows}(…){Windows}"),
             CountUnique => write!(f, "{Len}{Deduplicate}"),
+            Root => write!(f, "{Pow}{Div}{Flip}1"),
             MatchPattern => write!(f, "pattern match"),
             MatchLe => write!(f, "match ≤"),
             MatchGe => write!(f, "match ≥"),
@@ -1435,6 +1436,7 @@ impl ImplPrimitive {
                 env.push(random());
             }
             ImplPrimitive::CountUnique => env.monadic_ref(Value::count_unique)?,
+            ImplPrimitive::Root => env.dyadic_oo_00_env(Value::root)?,
             ImplPrimitive::MatchPattern => {
                 let expected = env.pop(1)?;
                 let got = env.pop(2)?;

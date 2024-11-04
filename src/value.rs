@@ -1656,6 +1656,7 @@ value_bin_math_impl!(
 value_bin_math_impl!(div, (Num, Char, num_char), (Byte, Char, byte_char),);
 value_bin_math_impl!(modulus, (Complex, Complex, com_com));
 value_bin_math_impl!(pow);
+value_bin_math_impl!(root);
 value_bin_math_impl!(log);
 value_bin_math_impl!(atan2);
 value_bin_math_impl!(

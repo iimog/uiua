@@ -60,6 +60,7 @@ fn under_inverse(
 }
 
 static UNDER_PATTERNS: &[&dyn UnderPattern] = &[
+    &CustomPat,
     &OnPat,
     &BothPat,
     &Trivial,
@@ -74,7 +75,6 @@ static UNDER_PATTERNS: &[&dyn UnderPattern] = &[
     &TransposePat,
     &RotatePat,
     &FillPat,
-    &CustomPat,
     &DupPat,
     // Sign ops
     &Stash(1, Abs, (Sign, Mul)),

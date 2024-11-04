@@ -57,26 +57,30 @@ pub fn un_inverse(input: &[Node], asm: &Assembly) -> InversionResult<Node> {
     Err(error)
 }
 
-pub fn anti_inverse(input: &[Node], asm: &Assembly) -> InversionResult<Node> {
-    // An anti inverse can be optionaly sandwhiched by an un inverse on either side
-    let mut curr = input;
+pub fn anti_inverse(mut input: &[Node], asm: &Assembly) -> InversionResult<Node> {
+    // An anti inverse can be optionaly sandwiched by an un inverse on either side
+
+    let orig_input = input;
     let mut error = Generic;
 
     // Anti inverse
     let mut got_anti = false;
+    let mut pre = Node::empty();
     let mut anti = Node::empty();
-    let mut start = 0;
     'find_anti: for s in 0..input.len() {
         error = Generic;
-        curr = &input[s..];
+        let curr = &input[s..];
         for pattern in ANTI_PATTERNS {
             match pattern.invert_extract(curr, asm) {
                 Ok((new, anti_inv)) => {
+                    if !nodes_clean_sig(new).is_some_and(|sig| sig.args == sig.outputs) {
+                        continue;
+                    }
                     dbgln!("matched anti pattern {pattern:?}\n  on {curr:?}\n  to {anti_inv:?}");
-                    curr = new;
-                    anti.prepend(anti_inv);
+                    pre = Node::from(&input[..s]);
+                    input = new;
+                    anti = anti_inv;
                     got_anti = true;
-                    start = s;
                     break 'find_anti;
                 }
                 Err(e) => error = error.max(e),
@@ -87,18 +91,22 @@ pub fn anti_inverse(input: &[Node], asm: &Assembly) -> InversionResult<Node> {
         return Err(error);
     }
 
-    // Leading non-inverted section
-    let pre = Node::from(&input[..start]);
+    // Leading value
+    let val = if let Ok((rest, val)) = Val.invert_extract(&pre, asm) {
+        pre = rest.into();
+        Some(val)
+    } else {
+        None
+    };
+
     let pre_sig = pre.sig()?;
-    if pre_sig.args != pre_sig.outputs || pre_sig.outputs > 1 {
+    if !(pre_sig == (0, 0) || pre_sig == (1, 1)) {
         return generic();
-    }
-    if !pre.is_empty() {
-        dbgln!("leading non-inverted section:\n  {pre:?}");
     }
 
     // Trailing un inverse
     let mut post = Node::empty();
+    let mut curr = input;
     'outer: loop {
         for pattern in UN_PATTERNS {
             match pattern.invert_extract(curr, asm) {
@@ -115,19 +123,23 @@ pub fn anti_inverse(input: &[Node], asm: &Assembly) -> InversionResult<Node> {
         }
         break;
     }
+    let span = post.span().or_else(|| anti.span()).or_else(|| pre.span());
     if !post.is_empty() {
-        let span = post
-            .span()
-            .or_else(|| anti.span())
-            .or_else(|| pre.span())
-            .ok_or(Generic)?;
+        let span = span.ok_or(Generic)?;
         post = Mod(Dip, eco_vec![post.sig_node()?], span);
     }
 
     anti.prepend(post);
     anti.prepend(pre);
 
-    dbgln!("anti-inverted\n     {input:?}\n  to {anti:?}");
+    if let Some(val) = val {
+        let span = span.ok_or(Generic)?;
+        anti.prepend(val);
+        anti = Mod(Dip, eco_vec![anti.sig_node()?], span);
+        anti.push(ImplPrim(MatchPattern, span));
+    }
+
+    dbgln!("anti-inverted\n     {orig_input:?}\n  to {anti:?}");
     Ok(anti)
 }
 
@@ -177,11 +189,14 @@ pub static ANTI_PATTERNS: &[&dyn InvertPattern] = &[
     &((Flip, Div), (Flip, Div)),
     &(Rotate, (Neg, Rotate)),
     &((Neg, Rotate), Rotate),
-    &(Pow, (1, Flip, Div, Pow)),
+    &(Pow, Root),
+    &(Root, Pow),
+    &((1, Flip, Div, Pow), Pow),
     &((Flip, Pow), Log),
     &(Log, (Flip, Pow)),
+    &((Flip, Log), (Flip, Root)),
+    &((Flip, Root), (Flip, Log)),
     &((Flip, 1, Flip, Div, Pow), (Flip, Log)),
-    &((Flip, Log), (Flip, 1, Flip, Div, Pow)),
     &(Complex, (crate::Complex::I, Mul, Sub)),
     &(Min, MatchLe),
     &(Max, MatchGe),
@@ -206,9 +221,9 @@ pub static CONTRA_PATTERNS: &[&dyn InvertPattern] = &[
     &(Div, Div),
     &((Flip, Div), Mul),
     &(Pow, (Flip, Log)),
-    &(Log, (1, Flip, Div, Pow)),
+    &(Log, Root),
     &((Flip, Log), Pow),
-    &((Flip, Pow), (Flip, 1, Flip, Div, Pow)),
+    &((Flip, Pow), (Flip, Root)),
     &(Min, Min),
     &(Max, Max),
     &(Select, IndexOf),
@@ -307,24 +322,7 @@ inverse!(DipPat, input, asm, Dip, span, [f], {
 });
 
 inverse!(OnPat, input, asm, On, span, [f], {
-    let orig_sig = f.sig;
-    let (f, val) = if let Ok((f, val)) = Val.invert_extract(f.node.as_slice(), asm) {
-        (Node::from(f).sig_node()?, Some(val))
-    } else {
-        (f.clone(), None)
-    };
-    let mut inv = f.node.anti_inverse(asm)?;
-    if let Some(val) = val {
-        inv.prepend(val);
-    }
-    let mut inv = inv.sig_node()?;
-    if orig_sig.args == orig_sig.outputs {
-        inv = Mod(Dip, eco_vec![inv], span).sig_node()?;
-    }
-    let mut inv = Mod(On, eco_vec![inv], span);
-    if orig_sig.args == orig_sig.outputs {
-        inv.push(ImplPrim(MatchPattern, span))
-    }
+    let inv = Mod(On, eco_vec![f.anti_inverse(asm)?], span);
     Ok((input, inv))
 });
 
@@ -817,7 +815,9 @@ impl InvertPattern for AntiTrivial {
             }
             [node @ SetOutputComment { .. }, input @ ..] => Ok((input, node.clone())),
             [Call(f, _), input @ ..] => {
-                Ok((input, asm[f].anti_inverse(asm).map_err(|e| e.func(f))?))
+                let mut node = asm[f].clone();
+                node.extend(input.iter().cloned());
+                Ok((input, node.anti_inverse(asm).map_err(|e| e.func(f))?))
             }
             _ => generic(),
         }
