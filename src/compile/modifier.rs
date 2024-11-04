@@ -666,9 +666,7 @@ impl Compiler {
             }
             Obverse => {
                 // Rectify case, where only one function is supplied
-                let in_inverse = replace(&mut self.in_inverse, false);
                 let (sn, span) = self.monadic_modifier_op(modified)?;
-                self.in_inverse = in_inverse;
                 let spandex = self.add_span(span.clone());
                 let mut cust = CustomInverse {
                     normal: Ok(sn.clone()),
