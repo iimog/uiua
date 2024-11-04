@@ -625,6 +625,15 @@ impl Compiler {
                 }
                 node
             }
+            Tuples => {
+                let (sn, _) = self.monadic_modifier_op(modified)?;
+                let span = self.add_span(modified.modifier.span.clone());
+                let mut node = Node::Mod(Primitive::Tuples, eco_vec![sn], span);
+                if let Some(n) = subscript {
+                    node.prepend(Node::new_push(n));
+                }
+                node
+            }
             Un => {
                 let (sn, span) = self.monadic_modifier_op(modified)?;
                 self.add_span(span.clone());
