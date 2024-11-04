@@ -556,6 +556,7 @@ impl Primitive {
             use Primitive::*;
             Some(match name {
                 "kork" => vec![(Keep, "k"), (On, "o"), (Rows, "r"), (Keep, "k")],
+                "awm" => vec![(Assert, "a"), (With, "w"), (Match, "m")],
                 _ => return None,
             })
         }
