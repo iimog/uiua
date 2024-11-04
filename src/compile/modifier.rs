@@ -648,18 +648,6 @@ impl Compiler {
             }
             Anti => {
                 let (sn, span) = self.monadic_modifier_op(modified)?;
-                if sn.sig.args < 2 {
-                    self.emit_diagnostic(
-                        format!(
-                            "Prefer {} over {} for functions \
-                            with fewer than 2 arguments",
-                            Primitive::Un.format(),
-                            Primitive::Anti.format()
-                        ),
-                        DiagnosticKind::Style,
-                        span.clone(),
-                    );
-                }
                 match sn.node.anti_inverse(&self.asm) {
                     Ok(inv) => inv,
                     Err(e) => return Err(self.error(span, e)),
