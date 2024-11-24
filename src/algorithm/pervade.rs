@@ -1,5 +1,6 @@
 //! Algorithms for pervasive array operations
 
+use std::convert::identity;
 use std::{cmp::Ordering, convert::Infallible, fmt::Display, iter::repeat, marker::PhantomData};
 
 use ecow::eco_vec;
@@ -1021,35 +1022,42 @@ pub mod complex_im {
 }
 
 macro_rules! eq_impl {
-    ($name:ident $eq:tt $ordering:expr) => {
+    ($name:ident, $f:ident) => {
         pub mod $name {
             use super::*;
             pub fn always_greater<A, B>(_: A, _: B) -> u8 {
-                ($ordering $eq Ordering::Less).into()
+                0
             }
             pub fn always_less<A, B>(_: A, _: B) -> u8 {
-                ($ordering $eq Ordering::Greater).into()
+                0
             }
-            pub fn num_num(a: f64, b: f64) -> u8 {
-                (b.array_cmp(&a) $eq $ordering) as u8
+            #[inline]
+            pub fn num_num(a: f64, b: f64) -> f64 {
+                $f(b.array_eq(&a)) as u8 as f64
             }
+            #[inline]
+            pub fn byte_byte(a: u8, b: u8) -> u8 {
+                $f(b.array_eq(&a)) as u8
+            }
+            #[inline]
             pub fn com_x(a: Complex, b: impl Into<Complex>) -> u8 {
-                (b.into().array_cmp(&a) $eq $ordering) as u8
+                $f(b.into().array_eq(&a)) as u8
             }
+            #[inline]
             pub fn x_com(a: impl Into<Complex>, b: Complex) -> u8 {
-                (b.array_cmp(&a.into()) $eq $ordering) as u8
+                $f(b.array_eq(&a.into())) as u8
             }
+            #[inline]
             pub fn byte_num(a: u8, b: f64) -> u8 {
-                (b.array_cmp(&f64::from(a)) $eq $ordering) as u8
+                $f(f64::from(b).array_eq(&a)) as u8
             }
+            #[inline]
             pub fn num_byte(a: f64, b: u8) -> u8 {
-                (f64::from(b).array_cmp(&a) $eq $ordering) as u8
+                $f(f64::from(b).array_eq(&a)) as u8
             }
+            #[inline]
             pub fn generic<T: Ord>(a: T, b: T) -> u8 {
-                (b.cmp(&a) $eq $ordering).into()
-            }
-            pub fn same_type<T: ArrayCmp + From<u8>>(a: T, b: T) -> T {
-               ((b.array_cmp(&a) $eq $ordering) as u8).into()
+                $f(b.cmp(&a) == Ordering::Equal) as u8
             }
             pub fn error<T: Display>(a: T, b: T, _env: &Uiua) -> UiuaError {
                 unreachable!("Comparisons cannot fail, failed to compare {a} and {b}")
@@ -1104,8 +1112,12 @@ macro_rules! cmp_impl {
     };
 }
 
-eq_impl!(is_eq == Ordering::Equal);
-eq_impl!(is_ne != Ordering::Equal);
+fn not(a: bool) -> bool {
+    !a
+}
+
+eq_impl!(is_eq, identity);
+eq_impl!(is_ne, not);
 cmp_impl!(other_is_lt == Ordering::Less);
 cmp_impl!(other_is_le != Ordering::Greater);
 cmp_impl!(other_is_gt == Ordering::Greater);

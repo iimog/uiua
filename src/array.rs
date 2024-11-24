@@ -795,10 +795,6 @@ pub trait ArrayValue:
     fn nested_value(&self) -> Option<&Value> {
         None
     }
-    /// Check if this element has the wildcard value
-    fn has_wildcard(&self) -> bool {
-        false
-    }
     /// Summarize the elements of an array of this type
     fn summarize(elems: &[Self]) -> String {
         String::new()
@@ -817,12 +813,6 @@ pub trait ArrayValue:
     }
 }
 
-/// A NaN value that always compares as equal
-pub const WILDCARD_NAN: f64 =
-    unsafe { std::mem::transmute(0x7ff8_0000_0000_0000u64 | 0x0000_0000_0000_0003) };
-/// A character value used as a wildcard that will equal any character
-pub const WILDCARD_CHAR: char = '\u{100000}';
-
 impl ArrayValue for f64 {
     const NAME: &'static str = "number";
     const SYMBOL: char = 'ℝ';
@@ -838,8 +828,6 @@ impl ArrayValue for f64 {
             EMPTY_NAN
         } else if self.to_bits() == TOMBSTONE_NAN.to_bits() {
             TOMBSTONE_NAN
-        } else if self.to_bits() == WILDCARD_NAN.to_bits() {
-            WILDCARD_NAN
         } else if self.is_nan() {
             f64::NAN
         } else if *self == 0.0 && self.is_sign_negative() {
@@ -851,9 +839,6 @@ impl ArrayValue for f64 {
     }
     fn proxy() -> Self {
         0.0
-    }
-    fn has_wildcard(&self) -> bool {
-        self.to_bits() == WILDCARD_NAN.to_bits()
     }
     fn summarize(elems: &[Self]) -> String {
         if elems.is_empty() {
@@ -1003,9 +988,6 @@ impl ArrayValue for char {
     fn compress_list_grid() -> bool {
         true
     }
-    fn has_wildcard(&self) -> bool {
-        *self == WILDCARD_CHAR
-    }
     fn summarize(elems: &[Self]) -> String {
         if elems.is_empty() {
             return String::new();
@@ -1096,9 +1078,6 @@ impl ArrayValue for Boxed {
     }
     fn nested_value(&self) -> Option<&Value> {
         Some(&self.0)
-    }
-    fn has_wildcard(&self) -> bool {
-        self.0.has_wildcard()
     }
     fn summarize(elems: &[Self]) -> String {
         if elems.is_empty() {
@@ -1234,15 +1213,12 @@ pub trait ArrayCmp<U = Self> {
 }
 
 impl ArrayCmp for f64 {
+    fn array_eq(&self, other: &Self) -> bool {
+        self == other
+    }
     fn array_cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap_or_else(|| {
-            if self.to_bits() == WILDCARD_NAN.to_bits() || other.to_bits() == WILDCARD_NAN.to_bits()
-            {
-                Ordering::Equal
-            } else {
-                self.is_nan().cmp(&other.is_nan())
-            }
-        })
+        self.partial_cmp(other)
+            .unwrap_or(self.is_nan().cmp(&other.is_nan()))
     }
 }
 
@@ -1262,14 +1238,10 @@ impl ArrayCmp for Complex {
 
 impl ArrayCmp for char {
     fn array_eq(&self, other: &Self) -> bool {
-        *self == *other || *self == WILDCARD_CHAR || *other == WILDCARD_CHAR
+        self == other
     }
     fn array_cmp(&self, other: &Self) -> Ordering {
-        if *self == WILDCARD_CHAR || *other == WILDCARD_CHAR {
-            Ordering::Equal
-        } else {
-            self.cmp(other)
-        }
+        self.cmp(other)
     }
 }
 

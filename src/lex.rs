@@ -15,7 +15,7 @@ use serde::*;
 use serde_tuple::*;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{ast::Subscript, Ident, Inputs, Primitive, WILDCARD_CHAR};
+use crate::{ast::Subscript, Ident, Inputs, Primitive};
 
 /// Subscript digit characters
 pub const SUBSCRIPT_DIGITS: [char; 10] = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
@@ -1446,7 +1446,6 @@ impl<'a> Lexer<'a> {
                 "\"" => '"'.to_string(),
                 "'" => '\''.to_string(),
                 "_" => char::MAX.to_string(),
-                "W" => WILDCARD_CHAR.to_string(),
                 "Z" => '\u{200d}'.to_string(),
                 "x" => {
                     let mut code = 0;

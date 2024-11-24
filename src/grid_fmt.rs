@@ -12,7 +12,7 @@ use crate::{
     boxed::Boxed,
     terminal_size, val_as_arr,
     value::Value,
-    Complex, Primitive, WILDCARD_CHAR, WILDCARD_NAN,
+    Complex, Primitive,
 };
 
 type Grid<T = char> = Vec<Vec<T>>;
@@ -70,8 +70,6 @@ impl GridFmt for f64 {
             "_".into()
         } else if f.to_bits() == TOMBSTONE_NAN.to_bits() {
             "⊥".into()
-        } else if f.to_bits() == WILDCARD_NAN.to_bits() {
-            "W".into()
         } else if positive.fract() == 0.0 || positive.is_nan() {
             format!("{minus}{positive}")
         } else if let Some((num, denom, approx)) =
@@ -241,7 +239,6 @@ impl GridFmt for Value {
 pub fn format_char_inner(c: char) -> String {
     match c {
         char::MAX => return "\\x¯01".into(),
-        WILDCARD_CHAR => return '�'.to_string(),
         EMPTY_CHAR => return '_'.to_string(),
         TOMBSTONE_CHAR => return '⊥'.to_string(),
         _ => {}

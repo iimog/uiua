@@ -39,25 +39,14 @@ impl<T: ArrayValue> Array<T> {
         let elems = self;
         let mut arr = match elems.rank().cmp(&of.rank()) {
             Ordering::Equal => {
-                let has_wildcard =
-                    elems.data.iter().any(T::has_wildcard) || of.data.iter().any(T::has_wildcard);
                 let mut result_data = EcoVec::with_capacity(elems.row_count());
-                if has_wildcard {
-                    for elem in elems.row_slices() {
-                        let is_member = of
-                            .row_slices()
-                            .any(|row| ArrayCmpSlice(row) == ArrayCmpSlice(elem));
-                        result_data.push(is_member as u8);
-                    }
-                } else {
-                    let mut members = HashSet::with_capacity(of.row_count());
-                    for of in of.row_slices() {
-                        members.insert(ArrayCmpSlice(of));
-                    }
-                    for elem in elems.row_slices() {
-                        let is_member = members.contains(&ArrayCmpSlice(elem));
-                        result_data.push(is_member as u8);
-                    }
+                let mut members = HashSet::with_capacity(of.row_count());
+                for of in of.row_slices() {
+                    members.insert(ArrayCmpSlice(of));
+                }
+                for elem in elems.row_slices() {
+                    let is_member = members.contains(&ArrayCmpSlice(elem));
+                    result_data.push(is_member as u8);
                 }
                 let shape: Shape = self.shape.iter().cloned().take(1).collect();
                 Array::new(shape, result_data)
@@ -138,30 +127,18 @@ impl<T: ArrayValue> Array<T> {
         let default = (env.scalar_fill::<f64>()).unwrap_or(haystack.row_count() as f64);
         Ok(match needle.rank().cmp(&haystack.rank()) {
             Ordering::Equal => {
-                let has_wildcard = needle.data.iter().any(T::has_wildcard)
-                    || haystack.data.iter().any(T::has_wildcard);
                 let mut result_data = EcoVec::with_capacity(needle.row_count());
-                if has_wildcard {
-                    for elem in needle.row_slices() {
-                        let index = (haystack.row_slices())
-                            .position(|row| ArrayCmpSlice(row) == ArrayCmpSlice(elem))
-                            .map(|i| i as f64)
-                            .unwrap_or(default);
-                        result_data.push(index);
-                    }
-                } else {
-                    let mut members = HashMap::with_capacity(haystack.row_count());
-                    for (i, of) in haystack.row_slices().enumerate() {
-                        members.entry(ArrayCmpSlice(of)).or_insert(i);
-                    }
-                    for elem in needle.row_slices() {
-                        result_data.push(
-                            members
-                                .get(&ArrayCmpSlice(elem))
-                                .map(|i| *i as f64)
-                                .unwrap_or(default),
-                        );
-                    }
+                let mut members = HashMap::with_capacity(haystack.row_count());
+                for (i, of) in haystack.row_slices().enumerate() {
+                    members.entry(ArrayCmpSlice(of)).or_insert(i);
+                }
+                for elem in needle.row_slices() {
+                    result_data.push(
+                        members
+                            .get(&ArrayCmpSlice(elem))
+                            .map(|i| *i as f64)
+                            .unwrap_or(default),
+                    );
                 }
                 let shape: Shape = needle.shape.iter().take(1).copied().collect();
                 Array::new(shape, result_data)

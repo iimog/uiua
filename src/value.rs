@@ -1288,9 +1288,6 @@ impl Value {
             }
         }
     }
-    pub(crate) fn has_wildcard(&self) -> bool {
-        val_as_arr!(self, |arr| arr.data.iter().any(ArrayValue::has_wildcard))
-    }
     pub(crate) fn box_nesting(&self) -> usize {
         let Value::Box(arr) = self else {
             return 0;
@@ -1728,10 +1725,10 @@ macro_rules! eq_impls {
             value_bin_impl!(
                 $name,
                 // Value comparable
-                [Num, same_type],
+                (Num, Num, num_num),
                 (Complex, Complex, com_x),
                 (Box, Box, generic),
-                (Byte, Byte, same_type),
+                (Byte, Byte, byte_byte),
                 (Char, Char, generic),
                 (Num, Byte, num_byte),
                 (Byte, Num, byte_num),
@@ -1795,16 +1792,7 @@ impl PartialEq for Value {
                 return false;
             }
         }
-        match (self, other) {
-            (Value::Num(a), Value::Num(b)) => a == b,
-            (Value::Byte(a), Value::Byte(b)) => a == b,
-            (Value::Char(a), Value::Char(b)) => a == b,
-            (Value::Complex(a), Value::Complex(b)) => a == b,
-            (Value::Box(a), Value::Box(b)) => a == b,
-            (Value::Num(a), Value::Byte(b)) => a == b,
-            (Value::Byte(a), Value::Num(b)) => a == b,
-            _ => false,
-        }
+        self.cmp(other) == Ordering::Equal
     }
 }
 

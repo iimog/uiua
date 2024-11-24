@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{Purity, WILDCARD_NAN};
+use crate::Purity;
 
 use super::*;
 
@@ -150,8 +150,6 @@ constant!(
     ("i", Math, crate::Complex::I),
     /// IEEE 754-2008's `NaN`
     ("NaN", Math, f64::NAN),
-    /// The wildcard `NaN` value that equals any other number
-    ("W", Math, WILDCARD_NAN),
     /// The maximum integer that can be represented exactly
     ("MaxInt", Math, 2f64.powi(53)),
     /// A string identifying the operating system

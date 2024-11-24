@@ -669,8 +669,8 @@ pub fn scan(ops: Ops, env: &mut Uiua) -> UiuaResult {
     match (f.node.as_flipped_primitive(), xs) {
         (Some((prim, flipped)), Value::Num(nums)) => {
             let arr = match prim {
-                Primitive::Eq => fast_scan(nums, |a, b| is_eq::num_num(a, b) as f64),
-                Primitive::Ne => fast_scan(nums, |a, b| is_ne::num_num(a, b) as f64),
+                Primitive::Eq => fast_scan(nums, is_eq::num_num),
+                Primitive::Ne => fast_scan(nums, is_ne::num_num),
                 Primitive::Add => fast_scan(nums, add::num_num),
                 Primitive::Sub if flipped => fast_scan(nums, flip(sub::num_num)),
                 Primitive::Sub => fast_scan(nums, sub::num_num),
