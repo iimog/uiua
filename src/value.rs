@@ -14,7 +14,7 @@ use crate::{
     array::*,
     cowslice::CowSlice,
     grid_fmt::GridFmt,
-    Boxed, Complex, Shape, Uiua, UiuaResult,
+    Boxed, Complex, DynArr, Shape, Uiua, UiuaResult,
 };
 
 /// A generic array value
@@ -34,6 +34,8 @@ pub enum Value {
     Char(Array<char>),
     /// Common box array
     Box(Array<Boxed>),
+    /// A dynamic array
+    Dyn(DynArr),
 }
 
 impl Default for Value {
@@ -56,6 +58,7 @@ macro_rules! val_as_arr {
             Value::Complex($arr) => $body,
             Value::Char($arr) => $body,
             Value::Box($arr) => $body,
+            Value::Dyn(_) => todo!(),
         }
     };
     ($input:expr, $f:path) => {
@@ -65,6 +68,7 @@ macro_rules! val_as_arr {
             Value::Complex(arr) => $f(arr),
             Value::Char(arr) => $f(arr),
             Value::Box(arr) => $f(arr),
+            Value::Dyn(_) => todo!(),
         }
     };
     ($input:expr, $env:expr, $f:path) => {
@@ -74,6 +78,7 @@ macro_rules! val_as_arr {
             Value::Complex(arr) => $f(arr, $env),
             Value::Char(arr) => $f(arr, $env),
             Value::Box(arr) => $f(arr, $env),
+            Value::Dyn(_) => todo!(),
         }
     };
 }
@@ -94,6 +99,7 @@ impl Value {
             Self::Complex(_) => Complex::TYPE_ID,
             Self::Char(_) => char::TYPE_ID,
             Self::Box(_) => Boxed::TYPE_ID,
+            Self::Dyn(_) => u8::MAX,
         }
     }
     /// Get a reference to a possible number array
@@ -174,6 +180,7 @@ impl Value {
             Self::Complex(_) => "complex",
             Self::Char(_) => "character",
             Self::Box(_) => "box",
+            Self::Dyn(arr) => arr.type_name(),
         }
     }
     /// Get a plural form of the value's type name
@@ -184,6 +191,7 @@ impl Value {
             Self::Complex(_) => "complexes",
             Self::Char(_) => "characters",
             Self::Box(_) => "boxes",
+            Self::Dyn(arr) => arr.type_name(),
         }
     }
     /// Get the number of rows
@@ -1432,6 +1440,12 @@ impl From<Vec<u8>> for Value {
         let mut data = CowSlice::new();
         data.extend_from_vec(vec);
         Self::from(data)
+    }
+}
+
+impl From<DynArr> for Value {
+    fn from(arr: DynArr) -> Self {
+        Self::Dyn(arr)
     }
 }
 

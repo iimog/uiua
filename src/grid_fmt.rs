@@ -2,6 +2,7 @@
 
 use std::{
     f64::consts::{PI, TAU},
+    fmt,
     iter::once,
     mem::take,
 };
@@ -15,7 +16,7 @@ use crate::{
     Complex, Primitive, WILDCARD_CHAR, WILDCARD_NAN,
 };
 
-type Grid<T = char> = Vec<Vec<T>>;
+pub type Grid<T = char> = Vec<Vec<T>>;
 type Metagrid = Grid<Grid>;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -25,9 +26,18 @@ pub struct GridFmtParams {
     pub depth: usize,
 }
 
-pub trait GridFmt {
-    fn fmt_grid(&self, params: GridFmtParams) -> Grid;
+pub trait GridFmt: fmt::Debug {
+    fn simple_fmt(&self) -> Option<String> {
+        None
+    }
+    fn fmt_grid(&self, _: GridFmtParams) -> Grid {
+        let s = self.simple_fmt().unwrap_or_else(|| format!("{self:?}"));
+        vec![s.chars().collect()]
+    }
     fn grid_string(&self, label: bool) -> String {
+        if let Some(s) = self.simple_fmt() {
+            return s;
+        }
         let mut s: String = self
             .fmt_grid(GridFmtParams {
                 label,

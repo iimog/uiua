@@ -152,6 +152,7 @@ mod check;
 mod compile;
 mod complex;
 mod cowslice;
+mod dynamic;
 mod error;
 mod ffi;
 mod fill;
@@ -185,6 +186,7 @@ pub use self::{
     boxed::*,
     compile::*,
     complex::*,
+    dynamic::*,
     error::*,
     ffi::*,
     function::*,
