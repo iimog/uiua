@@ -1,6 +1,6 @@
 #![allow(clippy::needless_raw_string_hashes)]
 
-use leptos::*;
+use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::*;
 

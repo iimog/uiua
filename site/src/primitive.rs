@@ -1,4 +1,4 @@
-use leptos::*;
+use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::*;
 use uiua::{PrimClass, PrimDocFragment, PrimDocLine, Primitive, SysOp};
@@ -8,26 +8,26 @@ use crate::{Hd, Prim, Prims};
 
 pub fn doc_line_fragments_to_view(fragments: &[PrimDocFragment]) -> View {
     if fragments.is_empty() {
-        return view!( <br/>).into_view();
+        return view!( <br/>).into_any();
     }
     fragments
         .iter()
         .map(|frag| match frag {
-            PrimDocFragment::Text(s) => s.into_view(),
-            PrimDocFragment::Code(s) => view!(<code>{s}</code>).into_view(),
-            PrimDocFragment::Emphasis(s) => view!(<em>{s}</em>).into_view(),
-            PrimDocFragment::Strong(s) => view!(<strong>{s}</strong>).into_view(),
+            PrimDocFragment::Text(s) => s.into_any(),
+            PrimDocFragment::Code(s) => view!(<code>{s}</code>).into_any(),
+            PrimDocFragment::Emphasis(s) => view!(<em>{s}</em>).into_any(),
+            PrimDocFragment::Strong(s) => view!(<strong>{s}</strong>).into_any(),
             PrimDocFragment::Link { text, url } => {
                 let url = url.clone();
                 let text = text.clone();
-                view!(<a href=url>{text}</a>).into_view()
+                view!(<a href=url>{text}</a>).into_any()
             }
             &PrimDocFragment::Primitive { prim, named } => {
-                view!(<Prim prim=prim glyph_only={!named}/>).into_view()
+                view!(<Prim prim=prim glyph_only={!named}/>).into_any()
             }
         })
         .collect::<Vec<_>>()
-        .into_view()
+        .into_any()
 }
 
 fn doc_lines_to_view(lines: &[PrimDocLine]) -> impl IntoView {
@@ -36,9 +36,9 @@ fn doc_lines_to_view(lines: &[PrimDocLine]) -> impl IntoView {
         .map(|line| match line {
             PrimDocLine::Text(frags) => {
                 view!(<p style="white-space: pre-wrap">{doc_line_fragments_to_view( frags)}</p>)
-                    .into_view()
+                    .into_any()
             }
-            PrimDocLine::Example(ex) => view!(<Editor example={ ex.input() }/>).into_view(),
+            PrimDocLine::Example(ex) => view!(<Editor example={ ex.input() }/>).into_any(),
         })
         .collect::<Vec<_>>()
 }
@@ -123,9 +123,9 @@ pub fn PrimDocs(prim: Primitive) -> impl IntoView {
             <p>{ experimental }</p>
             { body }
             { match prim {
-                Primitive::Un => all_uns().into_view(),
-                Primitive::Under => all_unders().into_view(),
-                Primitive::Fill => all_fills().into_view(),
+                Primitive::Un => all_uns().into_any(),
+                Primitive::Under => all_unders().into_any(),
+                Primitive::Fill => all_fills().into_any(),
                 _ => View::default(),
             } }
         </div>
@@ -135,7 +135,7 @@ pub fn PrimDocs(prim: Primitive) -> impl IntoView {
 #[component]
 pub fn AllFunctions() -> impl IntoView {
     let (list, set_list) =
-        create_signal(view!(<h3 class="running-text">"Generating list..."</h3>).into_view());
+        signal(view!(<h3 class="running-text">"Generating list..."</h3>).into_any());
     set_timeout(
         move || {
             set_list.set(
@@ -148,7 +148,7 @@ pub fn AllFunctions() -> impl IntoView {
                         }
                     })
                     .collect::<Vec<_>>()
-                    .into_view(),
+                    .into_any(),
             )
         },
         Default::default(),
@@ -402,9 +402,9 @@ fn inverse_row<const N: usize>(
     example: impl Into<Option<&'static str>>,
 ) -> impl IntoView {
     inverse_row_impl(
-        view!(<h3><Prims prims=prims show_names={N == 1}/></h3>).into_view(),
+        view!(<h3><Prims prims=prims show_names={N == 1}/></h3>).into_any(),
         value_req,
-        notes.into_view(),
+        notes.into_any(),
         example.into(),
     )
 }
@@ -419,10 +419,10 @@ fn inverse_row_impl(
         <tr>
             <td>{prims}</td>
             <td>{ match value_req {
-                ValueRequirement::No => "No".into_view(),
-                ValueRequirement::Optional => "Optional".into_view(),
-                ValueRequirement::Required => "Required".into_view(),
-                ValueRequirement::RequiresFill => view!(<Prim prim=Primitive::Fill/>).into_view(),
+                ValueRequirement::No => "No".into_any(),
+                ValueRequirement::Optional => "Optional".into_any(),
+                ValueRequirement::Required => "Required".into_any(),
+                ValueRequirement::RequiresFill => view!(<Prim prim=Primitive::Fill/>).into_any(),
             } }</td>
             <td>{notes}</td>
             <td>{ example.into().map(|ex| view!(<Editor example=ex/>)) }</td>

@@ -1,53 +1,53 @@
 [package]
+edition = "2021"
 name = "uiua-editor"
 version = "0.1.0"
-edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-leptos = { version = "0.6.10", features = ["csr"] }
-js-sys = "0.3.69"
-web-sys = { version = "0.3.70", features = [
-    "Window",
-    "CustomElementRegistry",
-    "CssStyleDeclaration",
-    "DomRect",
-    "Storage",
-    "HtmlAudioElement",
-    "HtmlBrElement",
-    "Selection",
-    "Node",
-    "Clipboard",
-    "ClipboardEvent",
-    "DataTransfer",
-    "Navigator",
-    "Permissions",
-    "ScrollIntoViewOptions",
-    "ScrollBehavior",
-    "ScrollLogicalPosition",
-    "StorageManager",
-    "FileReader",
-    "EventInit",
-    "DataTransfer",
-    "File",
-    "FileList",
-    "ResizeObserver",
-    "ResizeObserverEntry",
-    "Performance",
-] }
 base64 = "0.22.0"
-leptos_router = {version = "0.6.11", features = ["csr"]}
-uiua = {path = "../..", default-features = false, features = ["batteries", "web"]}
+hound = "3.5.1"
 image = "0.24.9"
+js-sys = "0.3.69"
+leptos = {version = "0.7.0-rc2"}
+leptos_router = {version = "0.7.0-rc2"}
+uiua = {path = "../..", default-features = false, features = ["batteries", "web"]}
 unicode-segmentation = "1.10"
 urlencoding = "2"
 wasm-bindgen = "0.2.93"
 wasm-bindgen-futures = "0.4.43"
-hound = "3.5.1"
+web-sys = {version = "0.3.70", features = [
+  "Window",
+  "CustomElementRegistry",
+  "CssStyleDeclaration",
+  "DomRect",
+  "Storage",
+  "HtmlAudioElement",
+  "HtmlBrElement",
+  "Selection",
+  "Node",
+  "Clipboard",
+  "ClipboardEvent",
+  "DataTransfer",
+  "Navigator",
+  "Permissions",
+  "ScrollIntoViewOptions",
+  "ScrollBehavior",
+  "ScrollLogicalPosition",
+  "StorageManager",
+  "FileReader",
+  "EventInit",
+  "DataTransfer",
+  "File",
+  "FileList",
+  "ResizeObserver",
+  "ResizeObserverEntry",
+  "Performance",
+]}
 
 # logging
+console_error_panic_hook = "0.1.5"
 log = "0.4"
 wasm-logger = "0.2.0"
-console_error_panic_hook = "0.1.5"

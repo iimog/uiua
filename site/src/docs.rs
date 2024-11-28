@@ -69,27 +69,27 @@ pub struct DocsParams {
 pub fn Docs() -> impl IntoView {
     move || {
         let Ok(params) = use_params::<DocsParams>().get() else {
-            return view!( <DocsHome/>).into_view();
+            return view!( <DocsHome/>).into_any();
         };
         let page = params.page;
         let page_view = match page {
-            DocsPage::Search(search) => return view!( <DocsHome search=search/>).into_view(),
-            DocsPage::Tour => Tour().into_view(),
-            DocsPage::Design => title_markdown("Design", "/text/design.md", ()).into_view(),
-            DocsPage::Technical => Technical().into_view(),
-            DocsPage::Install => Install().into_view(),
-            DocsPage::AllFunctions => AllFunctions().into_view(),
-            DocsPage::Uiuisms => Uiuisms().into_view(),
-            DocsPage::Changelog => Changelog().into_view(),
-            DocsPage::RightToLeft => RightToLeft().into_view(),
-            DocsPage::Constants => Constants().into_view(),
-            DocsPage::Subscripts => Subscripts().into_view(),
-            DocsPage::Combinators => Combinators().into_view(),
-            DocsPage::Optimizations => Optimizations().into_view(),
+            DocsPage::Search(search) => return view!( <DocsHome search=search/>).into_any(),
+            DocsPage::Tour => Tour().into_any(),
+            DocsPage::Design => title_markdown("Design", "/text/design.md", ()).into_any(),
+            DocsPage::Technical => Technical().into_any(),
+            DocsPage::Install => Install().into_any(),
+            DocsPage::AllFunctions => AllFunctions().into_any(),
+            DocsPage::Uiuisms => Uiuisms().into_any(),
+            DocsPage::Changelog => Changelog().into_any(),
+            DocsPage::RightToLeft => RightToLeft().into_any(),
+            DocsPage::Constants => Constants().into_any(),
+            DocsPage::Subscripts => Subscripts().into_any(),
+            DocsPage::Combinators => Combinators().into_any(),
+            DocsPage::Optimizations => Optimizations().into_any(),
             DocsPage::FormatConfig => {
-                title_markdown("Formatter Configuration", "/text/format_config.md", ()).into_view()
+                title_markdown("Formatter Configuration", "/text/format_config.md", ()).into_any()
             }
-            DocsPage::Experimental => Experimental().into_view(),
+            DocsPage::Experimental => Experimental().into_any(),
         };
 
         view! {
@@ -101,7 +101,7 @@ pub fn Docs() -> impl IntoView {
             <br/>
             <A href="/docs">"Back to Docs Home"</A>
         }
-        .into_view()
+        .into_any()
     }
 }
 
@@ -115,7 +115,7 @@ pub fn title_markdown(title: &str, src: &str, end: impl IntoView) -> impl IntoVi
 
 fn scroll_to_docs_functions(options: &ScrollIntoViewOptions) {
     element::<HtmlInputElement>("function-search")
-        .scroll_into_view_with_scroll_into_view_options(options);
+        .scroll_into_any_with_scroll_into_any_options(options);
 }
 
 #[component]
@@ -123,10 +123,10 @@ fn DocsHome(#[prop(optional)] search: String) -> impl IntoView {
     let search = urlencoding::decode(&search)
         .map(|s| s.into_owned())
         .unwrap_or_default();
-    let (results, set_result) = create_signal(None);
-    let (current_prim, set_current_prim) = create_signal(None);
-    let (clear_button, set_clear_button) = create_signal(None);
-    let (old_allowed, set_old_allowed) = create_signal(Allowed::all());
+    let (results, set_result) = signal(None);
+    let (current_prim, set_current_prim) = signal(None);
+    let (clear_button, set_clear_button) = signal(None);
+    let (old_allowed, set_old_allowed) = signal(Allowed::all());
     let update_search = move |text: &str, update_location: bool| {
         // Update clear button
         set_clear_button.set(if text.is_empty() {
@@ -140,7 +140,7 @@ fn DocsHome(#[prop(optional)] search: String) -> impl IntoView {
                 _ = search_input
                     .dispatch_event(&Event::new_with_event_init_dict("input", &init).unwrap());
             };
-            Some(view!( {}<button on:click=clear_search>"✕"</button>).into_view())
+            Some(view!( {}<button on:click=clear_search>"✕"</button>).into_any())
         });
 
         // Derive allowed primitives
@@ -173,7 +173,7 @@ fn DocsHome(#[prop(optional)] search: String) -> impl IntoView {
         set_old_allowed.set(allowed.clone());
         if allowed.classes.is_empty() && allowed.prims.is_empty() {
             // No Results
-            set_result.set(Some(view!( <p>"No results"</p>).into_view()));
+            set_result.set(Some(view!( <p>"No results"</p>).into_any()));
             set_current_prim.set(None);
         } else if allowed.prims.len() == 1
             && [PrimClass::all().count(), 1].contains(&allowed.classes.len())
@@ -183,11 +183,11 @@ fn DocsHome(#[prop(optional)] search: String) -> impl IntoView {
             let siv_options = ScrollIntoViewOptions::new();
             siv_options.set_behavior(ScrollBehavior::Instant);
             scroll_to_docs_functions(&siv_options);
-            set_result.set(Some(view!( <PrimDocs prim=prim/>).into_view()));
+            set_result.set(Some(view!( <PrimDocs prim=prim/>).into_any()));
             set_current_prim.set(Some(prim));
         } else {
             // Multiple results
-            set_result.set(Some(allowed.table().into_view()));
+            set_result.set(Some(allowed.table().into_any()));
             set_current_prim.set(None);
         }
     };
@@ -489,12 +489,12 @@ impl Allowed {
                             </div>
                             {sysop.long_name()}
                         </div>)
-                        .into_view()
+                        .into_any()
                     } else {
                         view!(<div style="display: flex; align-items: center;">
                             <div style=style><Prim prim=p/></div>{exp}
                         </div>)
-                        .into_view()
+                        .into_any()
                     }
                 })
                 .collect();
@@ -502,60 +502,60 @@ impl Allowed {
                 continue;
             }
             let (header, description) = match class {
-                PrimClass::Stack => ("Stack".into_view(), "Work with the stack"),
+                PrimClass::Stack => ("Stack".into_any(), "Work with the stack"),
                 PrimClass::Constant => (
-                    "Constants".into_view(),
+                    "Constants".into_any(),
                     "Push a constant value onto the stack",
                 ),
                 PrimClass::MonadicPervasive => (
-                    "Monadic Pervasive".into_view(),
+                    "Monadic Pervasive".into_any(),
                     "Operate on every element in an array",
                 ),
                 PrimClass::DyadicPervasive => (
-                    "Dyadic Pervasive".into_view(),
+                    "Dyadic Pervasive".into_any(),
                     "Operate on every pair of elements in two arrays",
                 ),
                 PrimClass::MonadicArray => {
-                    ("Monadic Array".into_view(), "Operate on a single array")
+                    ("Monadic Array".into_any(), "Operate on a single array")
                 }
-                PrimClass::DyadicArray => ("Dyadic Array".into_view(), "Operate on two arrays"),
+                PrimClass::DyadicArray => ("Dyadic Array".into_any(), "Operate on two arrays"),
                 PrimClass::IteratingModifier => (
-                    "Iterating Modifiers".into_view(),
+                    "Iterating Modifiers".into_any(),
                     "Iterate and apply a function to an array or arrays",
                 ),
                 PrimClass::AggregatingModifier => (
-                    "Aggregating Modifiers".into_view(),
+                    "Aggregating Modifiers".into_any(),
                     "Apply a function to aggregate an array",
                 ),
                 PrimClass::InversionModifier => (
-                    "Inversion Modifiers".into_view(),
+                    "Inversion Modifiers".into_any(),
                     "Work with the inverses of functions",
                 ),
                 PrimClass::Planet => (
-                    view!(<a class="clean" href="/tutorial/advancedstack#planet-notation">"🌎 Planet 🪐"</a>).into_view(),
+                    view!(<a class="clean" href="/tutorial/advancedstack#planet-notation">"🌎 Planet 🪐"</a>).into_any(),
                     "Advanced stack manipulation",
                 ),
                 PrimClass::Comptime => (
-                    "Comptime".into_view(),
+                    "Comptime".into_any(),
                     "Do things at compile time",
                 ),
-                PrimClass::OtherModifier => ("Other Modifiers".into_view(), ""),
-                PrimClass::Debug => ("Debug".into_view(), "Debug your code"),
-                PrimClass::Thread => ("Thread".into_view(), "Work with OS threads"),
-                PrimClass::Map => ("Map".into_view(), "Use arrays as hash maps"),
-                PrimClass::Encoding => ("Encoding".into_view(), "Convert to and from different encodings"),
-                PrimClass::Misc => ("Miscellaneous".into_view(), ""),
+                PrimClass::OtherModifier => ("Other Modifiers".into_any(), ""),
+                PrimClass::Debug => ("Debug".into_any(), "Debug your code"),
+                PrimClass::Thread => ("Thread".into_any(), "Work with OS threads"),
+                PrimClass::Map => ("Map".into_any(), "Use arrays as hash maps"),
+                PrimClass::Encoding => ("Encoding".into_any(), "Convert to and from different encodings"),
+                PrimClass::Misc => ("Miscellaneous".into_any(), ""),
                 PrimClass::Sys(class) => {
                     match class {
-                        SysOpClass::Filesystem => ("System - Filesystem".into_view(), "Work with files and directories"),
-                        SysOpClass::StdIO => ("System - Standard I/O".into_view(), "Read and write standard input and output"),
-                        SysOpClass::Env => ("System - Environment".into_view(), "Query the environment"),
-                        SysOpClass::Stream => ("System - Streams".into_view(), "Read from and write to streams"),
-                        SysOpClass::Command => ("System - Commands".into_view(), "Execute commands"),
-                        SysOpClass::Media => ("System - Media".into_view(), "Present media"),
-                        SysOpClass::Tcp => ("System - TCP".into_view(), "Work with TCP sockets"),
-                        SysOpClass::Ffi => ("System - FFI".into_view(), "Foreign function interface"),
-                        SysOpClass::Misc => ("System - Misc".into_view(), ""),
+                        SysOpClass::Filesystem => ("System - Filesystem".into_any(), "Work with files and directories"),
+                        SysOpClass::StdIO => ("System - Standard I/O".into_any(), "Read and write standard input and output"),
+                        SysOpClass::Env => ("System - Environment".into_any(), "Query the environment"),
+                        SysOpClass::Stream => ("System - Streams".into_any(), "Read from and write to streams"),
+                        SysOpClass::Command => ("System - Commands".into_any(), "Execute commands"),
+                        SysOpClass::Media => ("System - Media".into_any(), "Present media"),
+                        SysOpClass::Tcp => ("System - TCP".into_any(), "Work with TCP sockets"),
+                        SysOpClass::Ffi => ("System - FFI".into_any(), "Foreign function interface"),
+                        SysOpClass::Misc => ("System - Misc".into_any(), ""),
                     }
                 }
             };

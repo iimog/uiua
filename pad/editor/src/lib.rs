@@ -3,15 +3,14 @@ pub mod utils;
 
 use std::{cell::Cell, iter::repeat, mem::take, path::PathBuf, rc::Rc, time::Duration};
 
-use base64::engine::{general_purpose::STANDARD, Engine};
-
 use ev::mousemove;
 use leptos::{
     ev::{keydown, keyup},
+    prelude::*,
     *,
 };
 
-use leptos_router::{use_navigate, BrowserIntegration, History, LocationChange, NavigateOptions};
+use leptos_router::{hooks::use_navigate, NavigateOptions};
 use uiua::{
     format::{format_str, FormatConfig},
     is_ident_char, lex,
@@ -31,6 +30,13 @@ use backend::{delete_file, drop_file, OutputItem};
 use js_sys::Date;
 use std::sync::OnceLock;
 
+macro_rules! log {
+    ($($arg:tt)*) => {
+        leptos::leptos_dom::log!($($arg)*)
+    };
+}
+use log;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EditorMode {
     #[default]
@@ -45,10 +51,29 @@ thread_local! {
 
 static START_TIME: OnceLock<f64> = OnceLock::new();
 
+fn is_fn0<F, R>(f: F) -> F
+where
+    F: Fn() -> R,
+{
+    f
+}
+fn is_fn1<F, A, R>(f: F) -> F
+where
+    F: Fn(A) -> R,
+{
+    f
+}
+fn is_fn2<F, A, B, R>(f: F) -> F
+where
+    F: Fn(A, B) -> R,
+{
+    f
+}
+
 /// An editor for Uiua code
 #[component]
 pub fn Editor<'a>(
-    #[prop(optional)] example: &'a str,
+    #[prop(optional)] example: impl Into<String> + Default + 'static,
     #[prop(optional)] mode: EditorMode,
     #[prop(optional)] help: &'a [&'a str],
     #[prop(optional)] no_run: bool,
@@ -56,6 +81,7 @@ pub fn Editor<'a>(
     #[prop(optional)] nonprogressive: bool,
     #[prop(optional)] examples: Option<Vec<String>>,
 ) -> impl IntoView {
+    let example = example.into();
     START_TIME.get_or_init(|| Date::now() / 1000.0);
 
     let no_run = no_run
@@ -71,9 +97,9 @@ pub fn Editor<'a>(
     let help: Vec<String> = help.iter().map(|s| s.to_string()).collect();
     // Initialize all the examples
     let examples = match mode {
-        EditorMode::Example if !nonprogressive => progressive_strings(example),
+        EditorMode::Example if !nonprogressive => progressive_strings(&example),
         EditorMode::Showcase => examples.unwrap_or_default(),
-        _ => vec![example.into()],
+        _ => vec![example.clone()],
     };
     let code_max_lines = if let EditorMode::Pad = mode {
         6
@@ -101,20 +127,20 @@ pub fn Editor<'a>(
     let glyph_doc_element = move || -> HtmlDivElement { element(&glyph_doc_id()) };
 
     // Track line count
-    let (line_count, set_line_count) = create_signal(1);
+    let (line_count, set_line_count) = signal(1);
 
-    let initial_code_str = examples.first().cloned().unwrap_or_else(|| example.into());
-    let (initial_code, set_initial_code) = create_signal(Some(initial_code_str.clone()));
+    let initial_code_str = examples.first().cloned().unwrap_or(example);
+    let (initial_code, set_initial_code) = signal(Some(initial_code_str.clone()));
 
-    let (example, set_example) = create_signal(0);
-    let (diag_output, set_diag_output) = create_signal(View::default());
-    let (output, set_output) = create_signal(View::default());
-    let (token_count, set_token_count) = create_signal(0);
+    let (example, set_example) = signal(0);
+    let (diag_output, set_diag_output) = arc_signal(().into_any());
+    let (output, set_output) = arc_signal(().into_any());
+    let (token_count, set_token_count) = signal(0);
 
     // let code_text = move || code_text(&code_id());
     let get_code_cursor = move || get_code_cursor(&code_id());
-    let (copied_link, set_copied_link) = create_signal(false);
-    let (settings_open, set_settings_open) = create_signal(false);
+    let (copied_link, set_copied_link) = signal(false);
+    let (settings_open, set_settings_open) = signal(false);
     let update_token_count = move |code: &str| {
         set_token_count.set(
             lex(code, (), &mut Default::default())
@@ -127,7 +153,7 @@ pub fn Editor<'a>(
         )
     };
     let get_code = move || get_code(&code_id());
-    let (overlay, set_overlay) = create_signal(String::new());
+    let (overlay, set_overlay) = signal(String::new());
 
     // Initialize the state
     let state = State {
@@ -150,7 +176,7 @@ pub fn Editor<'a>(
             }
         },
     };
-    let (get_state, state) = create_signal(state);
+    let (get_state, state) = signal(state);
 
     // Get the code with output comments cleaned up
     let clean_code = move || {
@@ -177,7 +203,7 @@ pub fn Editor<'a>(
     };
 
     // Format the code
-    let format = move |do_format: bool, set_cursor: bool| -> (String, u64) {
+    let mut format = is_fn2(move |do_format: bool, set_cursor: bool| -> (String, u64) {
         // Get code
         let mut code_text = get_code();
         let mut cursor = if set_cursor {
@@ -237,119 +263,78 @@ pub fn Editor<'a>(
         {
             let encoded = url_encode_code(&clean_code());
             if let EditorMode::Pad = mode {
-                BrowserIntegration {}.navigate(&LocationChange {
-                    value: format!("/pad?src={encoded}"),
-                    scroll: false,
-                    replace: true,
-                    ..Default::default()
-                });
+                use_navigate()(
+                    &format!("/pad?src={encoded}"),
+                    NavigateOptions {
+                        scroll: false,
+                        replace: true,
+                        ..Default::default()
+                    },
+                )
             }
         }
 
         (input, seed)
-    };
+    });
 
     // Run the code
-    let run = move |do_format: bool, set_cursor: bool| {
-        // Format code
-        let (input, seed) = format(do_format, set_cursor);
+    let run = is_fn2({
+        let set_output = set_output.clone();
+        let set_diag_output = set_diag_output.clone();
+        move |do_format: bool, set_cursor: bool| {
+            // Format code
+            let (input, seed) = format(do_format, set_cursor);
 
-        // Run code
-        set_output.set(view!(<div class="running-text">"Running"</div>).into_view());
-        let allow_autoplay = !matches!(mode, EditorMode::Example) && get_autoplay();
-        let render_output_item = move |item| match item {
-            OutputItem::String(s) => {
-                if s.is_empty() {
-                    view!(<div class="output-item"><br/></div>).into_view()
-                } else {
-                    view!(<div class="output-item">{s}</div>).into_view()
-                }
-            }
-            OutputItem::Classed(class, s) => {
-                let class = format!("output-item {class}");
-                view!(<div class=class>{s}</div>).into_view()
-            }
-            OutputItem::Faint(s) => {
-                view!(<div class="output-item output-fainter">{s}</div>).into_view()
-            }
-            OutputItem::Image(bytes, label) => {
-                let encoded = STANDARD.encode(bytes);
-                view!(<div class="output-media-wrapper">
-                    <div class="output-image-label">{label}</div>
-                    <img class="output-image" src={format!("data:image/png;base64,{encoded}")} />
-                </div>)
-                .into_view()
-            }
-            OutputItem::Gif(bytes, label) => {
-                let encoded = STANDARD.encode(bytes);
-                view!(<div class="output-media-wrapper">
-                    <div class="output-image-label">{label}</div>
-                    <img class="output-image" src={format!("data:image/gif;base64,{encoded}")} />
-                </div>)
-                .into_view()
-            }
-            OutputItem::Audio(bytes, label) => {
-                let encoded = STANDARD.encode(bytes);
-                let src = format!("data:audio/wav;base64,{}", encoded);
-                let label = label.map(|s| format!("{s}:"));
-                if allow_autoplay {
-                    view!(<div class="output-media-wrapper">
-                        <div class="output-item output-audio-label">{label}</div>
-                        <audio class="output-audio" controls autoplay src=src/>
-                    </div>)
-                    .into_view()
-                } else {
-                    view!(<div class="output-media-wrapper">
-                        <div class="output-item output-audio-label">{label}</div>
-                        <audio class="output-audio" controls src=src/>
-                    </div>)
-                    .into_view()
-                }
-            }
-            OutputItem::Svg(s) => view!(<div><img
-                    class="output-image"
-                    src={format!("data:image/svg+xml;utf8, {}", urlencoding::encode(&s))}/>
-                </div>)
-            .into_view(),
-            OutputItem::Report(report) => report_view(&report).into_view(),
-            OutputItem::Separator => view!(<div class="output-item"><hr/></div>).into_view(),
-        };
-        set_timeout(
-            move || {
-                state.update(|st| {
-                    seed_random(seed);
-                    let output = st.run_code(&input);
-                    if take(&mut st.loading_module) {
-                        set_timeout(
-                            move || {
-                                state.update(|state| {
-                                    seed_random(seed);
-                                    let output = state.run_code(&input);
-                                    let (diags, items): (Vec<_>, Vec<_>) =
-                                        output.into_iter().partition(OutputItem::is_report);
-                                    let items: Vec<_> =
-                                        items.into_iter().map(render_output_item).collect();
-                                    let diags: Vec<_> =
-                                        diags.into_iter().map(render_output_item).collect();
-                                    set_output.set(items.into_view());
-                                    set_diag_output.set(diags.into_view());
-                                });
-                            },
-                            Duration::from_millis(200),
-                        );
-                    } else {
-                        let (diags, items): (Vec<_>, Vec<_>) =
-                            output.into_iter().partition(OutputItem::is_report);
-                        let items: Vec<_> = items.into_iter().map(render_output_item).collect();
-                        let diags: Vec<_> = diags.into_iter().map(render_output_item).collect();
-                        set_output.set(items.into_view());
-                        set_diag_output.set(diags.into_view());
-                    }
-                });
-            },
-            Duration::ZERO,
-        );
-    };
+            // Run code
+            set_output.set(view!(<div class="running-text">"Running"</div>).into_any());
+            let allow_autoplay = !matches!(mode, EditorMode::Example) && get_autoplay();
+            let set_output = set_output.clone();
+            let set_diag_output = set_diag_output.clone();
+            let input = input.clone();
+            set_timeout(
+                move || {
+                    let set_output = set_output.clone();
+                    let set_diag_output = set_diag_output.clone();
+                    let input = input.clone();
+                    state.update(|st| {
+                        seed_random(seed);
+                        let output = st.run_code(&input);
+                        let render_output_item =
+                            move |item| render_output_item(item, allow_autoplay);
+                        if take(&mut st.loading_module) {
+                            let set_output = set_output.clone();
+                            let set_diag_output = set_diag_output.clone();
+                            set_timeout(
+                                move || {
+                                    state.update(|state| {
+                                        seed_random(seed);
+                                        let output = state.run_code(&input);
+                                        let (diags, items): (Vec<_>, Vec<_>) =
+                                            output.into_iter().partition(OutputItem::is_report);
+                                        let items: Vec<_> =
+                                            items.into_iter().map(render_output_item).collect();
+                                        let diags: Vec<_> =
+                                            diags.into_iter().map(render_output_item).collect();
+                                        set_output.set(items.into_any());
+                                        set_diag_output.set(diags.into_any());
+                                    });
+                                },
+                                Duration::from_millis(200),
+                            );
+                        } else {
+                            let (diags, items): (Vec<_>, Vec<_>) =
+                                output.into_iter().partition(OutputItem::is_report);
+                            let items: Vec<_> = items.into_iter().map(render_output_item).collect();
+                            let diags: Vec<_> = diags.into_iter().map(render_output_item).collect();
+                            set_output.set(items.into_any());
+                            set_diag_output.set(diags.into_any());
+                        }
+                    });
+                },
+                Duration::ZERO,
+            );
+        }
+    });
 
     // Replace the selected text in the editor with the given string
     let replace_code = move |state: &mut State, inserted: &str| {
@@ -435,7 +420,7 @@ pub fn Editor<'a>(
             } else {
                 "none"
             };
-            overlay_element
+            (*overlay_element)
                 .style()
                 .set_property("pointer-events", pointer_events)
                 .unwrap();
@@ -447,118 +432,191 @@ pub fn Editor<'a>(
         // let key = event.key();
         // logging::log!("release: {key:?}");
     });
-    window_event_listener(keydown, move |event| {
-        let event = event.dyn_ref::<web_sys::KeyboardEvent>().unwrap();
-        update_ctrl(event);
-        let key = event.key();
-        let key = key.as_str();
-        // logging::log!("press: {key:?}");
+    {
+        let run = run.clone();
+        let format = format.clone();
+        window_event_listener(keydown, move |event| {
+            let event = event.dyn_ref::<web_sys::KeyboardEvent>().unwrap();
+            update_ctrl(event);
+            let key = event.key();
+            let key = key.as_str();
+            // logging::log!("press: {key:?}");
 
-        if key == "Control" && !on_mac() || key == "Meta" && on_mac() {
-            if let Some(overlay_element) = get_element::<HtmlDivElement>(&overlay_id()) {
-                overlay_element
-                    .style()
-                    .set_property("pointer-events", "all")
-                    .unwrap();
+            if key == "Control" && !on_mac() || key == "Meta" && on_mac() {
+                if let Some(overlay_element) = get_element::<HtmlDivElement>(&overlay_id()) {
+                    (*overlay_element)
+                        .style()
+                        .set_property("pointer-events", "all")
+                        .unwrap();
+                }
             }
-        }
 
-        let focused = event
-            .target()
-            .and_then(|t| t.dyn_into::<HtmlTextAreaElement>().ok())
-            .is_some_and(|t| t.id() == code_id());
-        if !focused {
-            return;
-        }
-        let mut handled = true;
-        /// For determining if ctrl+backspace/delete should remove a sequence of characters
-        fn char_class(c: char) -> u8 {
-            if is_ident_char(c) {
-                1
-            } else if c.is_ascii_digit() {
-                2
-            } else if c == '\n' {
-                3
-            } else if c == '\'' {
-                4
-            } else if c == '"' {
-                5
-            } else if "()[]{}".contains(c) {
-                7
-            } else {
-                0
+            let focused = event
+                .target()
+                .and_then(|t| t.dyn_into::<HtmlTextAreaElement>().ok())
+                .is_some_and(|t| t.id() == code_id());
+            if !focused {
+                return;
             }
-        }
-
-        match key {
-            "Enter" => {
-                let ctrl = os_ctrl(event);
-                let shift = event.shift_key();
-                if ctrl || shift {
-                    if get_run_on_format() || shift {
-                        run(true, true);
-                    } else {
-                        format(true, true);
-                    }
+            let mut handled = true;
+            /// For determining if ctrl+backspace/delete should remove a sequence of characters
+            fn char_class(c: char) -> u8 {
+                if is_ident_char(c) {
+                    1
+                } else if c.is_ascii_digit() {
+                    2
+                } else if c == '\n' {
+                    3
+                } else if c == '\'' {
+                    4
+                } else if c == '"' {
+                    5
+                } else if "()[]{}".contains(c) {
+                    7
                 } else {
-                    let (start, _) = get_code_cursor().unwrap();
-                    state.update(|state| {
-                        let code = get_code();
-                        let left_char = if start > 0 {
-                            code.chars().nth(start as usize - 1)
+                    0
+                }
+            }
+
+            match key {
+                "Enter" => {
+                    let ctrl = os_ctrl(event);
+                    let shift = event.shift_key();
+                    if ctrl || shift {
+                        if get_run_on_format() || shift {
+                            run(true, true);
                         } else {
-                            None
-                        };
-                        let right_char = code.chars().nth(start as usize);
-                        let (start_line, start_col) = line_col(&code, start as usize);
-                        let curr_line = code.lines().nth(start_line - 1).unwrap_or_default();
-                        let curr_line_indent = curr_line
-                            .chars()
-                            .take(start_col - 1)
-                            .take_while(|c| c.is_whitespace())
-                            .count();
-                        let line_start = code
-                            .lines()
-                            .take(start_line - 1)
-                            .map(|line| line.chars().count() + 1)
-                            .sum::<usize>();
-                        let line_before_left: String = code
-                            .chars()
-                            .take(start.saturating_sub(1) as usize)
-                            .skip(line_start)
-                            .collect();
-                        let before_is_stringy =
-                            line_before_left.ends_with('@') || line_before_left.ends_with("$ ");
-                        let indent = curr_line_indent
-                            + 2 * left_char.is_some_and(|c| "({[".contains(c) && !before_is_stringy)
-                                as usize;
-                        replace_code(state, &format!("\n{}", " ".repeat(indent)));
+                            format(true, true);
+                        }
+                    } else {
                         let (start, _) = get_code_cursor().unwrap();
-                        if right_char.is_some_and(|c| ")}]".contains(c) && !before_is_stringy) {
-                            replace_code(
-                                state,
-                                &format!("\n{}", " ".repeat(indent.saturating_sub(2))),
-                            );
-                            state.set_cursor((start, start));
+                        state.update(|state| {
+                            let code = get_code();
+                            let left_char = if start > 0 {
+                                code.chars().nth(start as usize - 1)
+                            } else {
+                                None
+                            };
+                            let right_char = code.chars().nth(start as usize);
+                            let (start_line, start_col) = line_col(&code, start as usize);
+                            let curr_line = code.lines().nth(start_line - 1).unwrap_or_default();
+                            let curr_line_indent = curr_line
+                                .chars()
+                                .take(start_col - 1)
+                                .take_while(|c| c.is_whitespace())
+                                .count();
+                            let line_start = code
+                                .lines()
+                                .take(start_line - 1)
+                                .map(|line| line.chars().count() + 1)
+                                .sum::<usize>();
+                            let line_before_left: String = code
+                                .chars()
+                                .take(start.saturating_sub(1) as usize)
+                                .skip(line_start)
+                                .collect();
+                            let before_is_stringy =
+                                line_before_left.ends_with('@') || line_before_left.ends_with("$ ");
+                            let indent = curr_line_indent
+                                + 2 * left_char
+                                    .is_some_and(|c| "({[".contains(c) && !before_is_stringy)
+                                    as usize;
+                            replace_code(state, &format!("\n{}", " ".repeat(indent)));
+                            let (start, _) = get_code_cursor().unwrap();
+                            if right_char.is_some_and(|c| ")}]".contains(c) && !before_is_stringy) {
+                                replace_code(
+                                    state,
+                                    &format!("\n{}", " ".repeat(indent.saturating_sub(2))),
+                                );
+                                state.set_cursor((start, start));
+                            }
+                        });
+                    }
+                }
+                "Backspace" => {
+                    let (mut start, end) = get_code_cursor().unwrap();
+                    // logging::log!("backspace start: {start}, end: {end}");
+                    state.update(|state| {
+                        if start == end {
+                            if start > 0 {
+                                let mut removal_count = 1;
+                                let code = get_code();
+                                if os_ctrl(event) {
+                                    removal_count = 0;
+                                    let chars: Vec<_> = code.chars().take(start as usize).collect();
+                                    let last_char = *chars.last().unwrap();
+                                    let class = char_class(last_char);
+                                    let mut encountered_space = false;
+                                    for &c in chars.iter().rev() {
+                                        if c.is_whitespace() && c != '\n'
+                                            || char_class(c) == class && !encountered_space
+                                        {
+                                            removal_count += 1;
+                                        } else {
+                                            break;
+                                        }
+                                        encountered_space |= c.is_whitespace();
+                                    }
+                                } else if let Some(char_after) = code.chars().nth(start as usize) {
+                                    let last_char = code.chars().nth(start as usize - 1).unwrap();
+                                    for (open, close) in
+                                        [('(', ')'), ('[', ']'), ('{', '}'), ('"', '"')]
+                                    {
+                                        if last_char == open {
+                                            if char_after == close {
+                                                start += 1;
+                                                removal_count += 1;
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                                remove_code(state, start - removal_count, start);
+                            }
+                        } else {
+                            remove_code(state, start, end);
                         }
                     });
                 }
-            }
-            "Backspace" => {
-                let (mut start, end) = get_code_cursor().unwrap();
-                // logging::log!("backspace start: {start}, end: {end}");
-                state.update(|state| {
-                    if start == end {
-                        if start > 0 {
+                "Delete" if event.shift_key() => {
+                    // Delete lines between cursor start and end
+                    state.update(|state| {
+                        let (start, end) = get_code_cursor().unwrap();
+                        let (start, end) = (start.min(end), start.max(end));
+                        let code = get_code();
+                        let (start_line, _) = line_col(&code, start as usize);
+                        let (end_line, _) = line_col(&code, end as usize);
+                        let new_code: String = code
+                            .lines()
+                            .enumerate()
+                            .filter_map(|(i, line)| {
+                                if i < start_line - 1 || i >= end_line {
+                                    if i == 0 || start_line == 1 && i == end_line {
+                                        Some(line.into())
+                                    } else {
+                                        Some(format!("\n{}", line))
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        state.set_code(&new_code, Cursor::Set(start, start));
+                    });
+                }
+                "Delete" => {
+                    let (start, end) = get_code_cursor().unwrap();
+                    state.update(|state| {
+                        if start == end {
                             let mut removal_count = 1;
-                            let code = get_code();
                             if os_ctrl(event) {
                                 removal_count = 0;
-                                let chars: Vec<_> = code.chars().take(start as usize).collect();
-                                let last_char = *chars.last().unwrap();
-                                let class = char_class(last_char);
+                                let code = get_code();
+                                let chars: Vec<_> = code.chars().skip(end as usize).collect();
+                                let first_char = *chars.first().unwrap();
+                                let class = char_class(first_char);
                                 let mut encountered_space = false;
-                                for &c in chars.iter().rev() {
+                                for &c in chars.iter() {
                                     if c.is_whitespace() && c != '\n'
                                         || char_class(c) == class && !encountered_space
                                     {
@@ -568,282 +626,216 @@ pub fn Editor<'a>(
                                     }
                                     encountered_space |= c.is_whitespace();
                                 }
-                            } else if let Some(char_after) = code.chars().nth(start as usize) {
-                                let last_char = code.chars().nth(start as usize - 1).unwrap();
-                                for (open, close) in
-                                    [('(', ')'), ('[', ']'), ('{', '}'), ('"', '"')]
-                                {
-                                    if last_char == open {
-                                        if char_after == close {
-                                            start += 1;
-                                            removal_count += 1;
-                                        }
-                                        break;
-                                    }
-                                }
                             }
-                            remove_code(state, start - removal_count, start);
+                            remove_code(state, start, start + removal_count);
+                        } else {
+                            remove_code(state, start, end);
+                        }
+                    });
+                }
+                "Tab" => {
+                    state.update(|state| replace_code(state, "  "));
+                }
+                // Select all
+                "a" if os_ctrl(event) => {
+                    state.update(|state| {
+                        let code = get_code();
+                        state.set_code(&code, Cursor::Set(0, code.chars().count() as u32))
+                    });
+                }
+                // Copy line
+                "c" if os_ctrl(event) => {
+                    let (start, end) = get_code_cursor().unwrap();
+                    if start == end {
+                        let code = get_code();
+                        let (line, _) = line_col(&code, start as usize);
+                        if let Some(line) = code.split('\n').nth(line - 1) {
+                            _ = window().navigator().clipboard().write_text(line);
                         }
                     } else {
-                        remove_code(state, start, end);
+                        handled = false;
                     }
-                });
-            }
-            "Delete" if event.shift_key() => {
-                // Delete lines between cursor start and end
-                state.update(|state| {
+                }
+                // Cut
+                "x" if os_ctrl(event) => {
                     let (start, end) = get_code_cursor().unwrap();
-                    let (start, end) = (start.min(end), start.max(end));
+                    let (mut start, mut end) = (start.min(end), start.max(end));
                     let code = get_code();
-                    let (start_line, _) = line_col(&code, start as usize);
-                    let (end_line, _) = line_col(&code, end as usize);
-                    let new_code: String = code
-                        .lines()
-                        .enumerate()
-                        .filter_map(|(i, line)| {
-                            if i < start_line - 1 || i >= end_line {
-                                if i == 0 || start_line == 1 && i == end_line {
-                                    Some(line.into())
-                                } else {
-                                    Some(format!("\n{}", line))
-                                }
-                            } else {
-                                None
+                    let text = if start == end {
+                        let (line, _) = line_col(&code, start as usize);
+                        let text = code.split('\n').nth(line - 1).unwrap_or("").to_string();
+                        start = (code.split('\n').take(line - 1))
+                            .map(|line| line.chars().count() + 1)
+                            .sum::<usize>() as u32;
+                        end = start + text.chars().count() as u32 + 1;
+                        text
+                    } else {
+                        code.chars()
+                            .skip(start as usize)
+                            .take((end - start) as usize)
+                            .collect()
+                    };
+                    _ = window().navigator().clipboard().write_text(&text);
+                    state.update(|state| remove_code(state, start, end));
+                }
+                // Redo
+                "y" if os_ctrl(event) => state.update(|state| state.redo()),
+                "z" | "Z" if os_ctrl(event) && event.shift_key() => {
+                    state.update(|state| state.redo())
+                }
+                // Undo
+                "z" if os_ctrl(event) => state.update(|state| state.undo()),
+                // Insert # Experimental! comment
+                "e" if os_ctrl(event) => insert_experimental(),
+                // Toggle line comment
+                "/" | "4" if os_ctrl(event) => {
+                    state.update(|state| {
+                        let code = get_code();
+                        let (start, end) = get_code_cursor().unwrap();
+                        let (start, end) = (start.min(end), start.max(end));
+                        let (start_line, _) = line_col(&code, start as usize);
+                        let (end_line, _) = line_col(&code, end as usize);
+                        let mut lines: Vec<String> = code.split('\n').map(Into::into).collect();
+                        let range = &mut lines[start_line - 1..end_line];
+                        let prefix = if key == "/" { '#' } else { '$' };
+                        if range.iter().all(|line| line.trim().starts_with(prefix)) {
+                            // Toggle comments off
+                            for line in range {
+                                let space_count = line.chars().take_while(|c| *c == ' ').count();
+                                *line = repeat(' ')
+                                    .take(space_count)
+                                    .chain(
+                                        line.trim()
+                                            .trim_start_matches(prefix)
+                                            .trim_start_matches(' ')
+                                            .chars(),
+                                    )
+                                    .collect();
                             }
-                        })
-                        .collect();
-                    state.set_code(&new_code, Cursor::Set(start, start));
-                });
-            }
-            "Delete" => {
-                let (start, end) = get_code_cursor().unwrap();
-                state.update(|state| {
-                    if start == end {
-                        let mut removal_count = 1;
-                        if os_ctrl(event) {
-                            removal_count = 0;
-                            let code = get_code();
-                            let chars: Vec<_> = code.chars().skip(end as usize).collect();
-                            let first_char = *chars.first().unwrap();
-                            let class = char_class(first_char);
-                            let mut encountered_space = false;
-                            for &c in chars.iter() {
-                                if c.is_whitespace() && c != '\n'
-                                    || char_class(c) == class && !encountered_space
-                                {
-                                    removal_count += 1;
-                                } else {
+                        } else {
+                            // Toggle comments on
+                            for line in range {
+                                let spot = line.chars().take_while(|c| " \t".contains(*c)).count();
+                                line.insert(spot, ' ');
+                                line.insert(spot, prefix);
+                            }
+                        }
+                        let new_code = lines.join("\n");
+                        state.set_code(&new_code, Cursor::Set(start, end));
+                    });
+                }
+                // Handle double quote delimiters
+                "\"" => {
+                    let (start, end) = get_code_cursor().unwrap();
+                    state.update(|state| {
+                        let code = get_code();
+                        let can_couple = code
+                            .chars()
+                            .nth(start as usize)
+                            .map_or(true, |c| c.is_whitespace() || "(){}[]".contains(c));
+                        let at_behind =
+                            code.chars().nth((start as usize).saturating_sub(1)) == Some('@');
+                        if (start != end || can_couple) && !at_behind {
+                            surround_code(state, '"', '"');
+                        } else if start == end && code.chars().nth(start as usize) == Some('"') {
+                            state.set_cursor((start + 1, start + 1));
+                        } else {
+                            replace_code(state, key);
+                        }
+                    });
+                }
+                // Handle open delimiters
+                "(" | "[" | "{" if !os_ctrl(event) => {
+                    // Surround the selected text with delimiters
+                    let (open, close) = match key {
+                        "\"" => ('"', '"'),
+                        "(" => ('(', ')'),
+                        "[" => ('[', ']'),
+                        "{" => ('{', '}'),
+                        _ => unreachable!(),
+                    };
+                    let (start, end) = get_code_cursor().unwrap();
+                    let code = get_code();
+                    state.update(|state| {
+                        let can_couple = code
+                            .chars()
+                            .nth(start as usize)
+                            .map_or(true, |c| c.is_whitespace() || "(){}[]".contains(c));
+                        let at_behind =
+                            code.chars().nth((start as usize).saturating_sub(1)) == Some('@');
+                        if (start != end || can_couple) && !at_behind {
+                            surround_code(state, open, close);
+                        } else {
+                            replace_code(state, key);
+                        }
+                    });
+                }
+                // Handle close delimiters
+                ")" | "]" | "}" if !event.meta_key() => {
+                    let (start, end) = get_code_cursor().unwrap();
+                    let code = get_code();
+                    let close = key.chars().next().unwrap();
+                    state.update(|state| {
+                        if start == end && code.chars().nth(start as usize) == Some(close) {
+                            state.set_cursor((start + 1, start + 1));
+                        } else {
+                            replace_code(state, key);
+                        }
+                    });
+                }
+                // Line swapping with alt+up/down
+                key @ ("ArrowUp" | "ArrowDown") if event.alt_key() => {
+                    let (_, end) = get_code_cursor().unwrap();
+                    state.update(|state| {
+                        let code = get_code();
+                        let (line, col) = line_col(&code, end as usize);
+                        let line_index = line - 1;
+                        let up = key == "ArrowUp";
+                        let mut lines: Vec<String> = code.split('\n').map(Into::into).collect();
+                        if up && line_index > 0 || !up && line_index < lines.len() - 1 {
+                            let swap_index = if up { line_index - 1 } else { line_index + 1 };
+                            lines.swap(line_index, swap_index);
+                            let swapped: String = lines.join("\n");
+                            let mut new_end = 0;
+                            for (i, line) in lines.iter().enumerate() {
+                                if i == swap_index {
+                                    let line_len = line.chars().count();
+                                    if col < line_len {
+                                        new_end += col as u32;
+                                        new_end -= 1;
+                                    } else {
+                                        new_end += line_len as u32;
+                                    }
                                     break;
                                 }
-                                encountered_space |= c.is_whitespace();
+                                new_end += line.chars().count() as u32 + 1;
                             }
+                            state.set_code(&swapped, Cursor::Set(new_end, new_end));
                         }
-                        remove_code(state, start, start + removal_count);
-                    } else {
-                        remove_code(state, start, end);
-                    }
-                });
-            }
-            "Tab" => {
-                state.update(|state| replace_code(state, "  "));
-            }
-            // Select all
-            "a" if os_ctrl(event) => {
-                state.update(|state| {
-                    let code = get_code();
-                    state.set_code(&code, Cursor::Set(0, code.chars().count() as u32))
-                });
-            }
-            // Copy line
-            "c" if os_ctrl(event) => {
-                let (start, end) = get_code_cursor().unwrap();
-                if start == end {
-                    let code = get_code();
-                    let (line, _) = line_col(&code, start as usize);
-                    if let Some(line) = code.split('\n').nth(line - 1) {
-                        _ = window().navigator().clipboard().write_text(line);
-                    }
-                } else {
-                    handled = false;
+                    });
                 }
+                // Intercept forward/back keyboard navigation
+                "ArrowLeft" | "ArrowRight" if !on_mac() && event.alt_key() => {}
+                // Chrome 😠
+                "Unidentified" => {
+                    set_timeout(
+                        move || get_state.get().refresh_code(),
+                        Duration::from_millis(0),
+                    );
+                }
+                // Normal key input
+                key if key.chars().count() == 1 && !os_ctrl(event) && !event.alt_key() => {
+                    state.update(|state| replace_code(state, key));
+                }
+                _ => handled = false,
             }
-            // Cut
-            "x" if os_ctrl(event) => {
-                let (start, end) = get_code_cursor().unwrap();
-                let (mut start, mut end) = (start.min(end), start.max(end));
-                let code = get_code();
-                let text = if start == end {
-                    let (line, _) = line_col(&code, start as usize);
-                    let text = code.split('\n').nth(line - 1).unwrap_or("").to_string();
-                    start = (code.split('\n').take(line - 1))
-                        .map(|line| line.chars().count() + 1)
-                        .sum::<usize>() as u32;
-                    end = start + text.chars().count() as u32 + 1;
-                    text
-                } else {
-                    code.chars()
-                        .skip(start as usize)
-                        .take((end - start) as usize)
-                        .collect()
-                };
-                _ = window().navigator().clipboard().write_text(&text);
-                state.update(|state| remove_code(state, start, end));
+            if handled {
+                event.prevent_default();
+                event.stop_propagation();
+                update_token_count(&get_code());
             }
-            // Redo
-            "y" if os_ctrl(event) => state.update(|state| state.redo()),
-            "z" | "Z" if os_ctrl(event) && event.shift_key() => state.update(|state| state.redo()),
-            // Undo
-            "z" if os_ctrl(event) => state.update(|state| state.undo()),
-            // Insert # Experimental! comment
-            "e" if os_ctrl(event) => insert_experimental(),
-            // Toggle line comment
-            "/" | "4" if os_ctrl(event) => {
-                state.update(|state| {
-                    let code = get_code();
-                    let (start, end) = get_code_cursor().unwrap();
-                    let (start, end) = (start.min(end), start.max(end));
-                    let (start_line, _) = line_col(&code, start as usize);
-                    let (end_line, _) = line_col(&code, end as usize);
-                    let mut lines: Vec<String> = code.split('\n').map(Into::into).collect();
-                    let range = &mut lines[start_line - 1..end_line];
-                    let prefix = if key == "/" { '#' } else { '$' };
-                    if range.iter().all(|line| line.trim().starts_with(prefix)) {
-                        // Toggle comments off
-                        for line in range {
-                            let space_count = line.chars().take_while(|c| *c == ' ').count();
-                            *line = repeat(' ')
-                                .take(space_count)
-                                .chain(
-                                    line.trim()
-                                        .trim_start_matches(prefix)
-                                        .trim_start_matches(' ')
-                                        .chars(),
-                                )
-                                .collect();
-                        }
-                    } else {
-                        // Toggle comments on
-                        for line in range {
-                            let spot = line.chars().take_while(|c| " \t".contains(*c)).count();
-                            line.insert(spot, ' ');
-                            line.insert(spot, prefix);
-                        }
-                    }
-                    let new_code = lines.join("\n");
-                    state.set_code(&new_code, Cursor::Set(start, end));
-                });
-            }
-            // Handle double quote delimiters
-            "\"" => {
-                let (start, end) = get_code_cursor().unwrap();
-                state.update(|state| {
-                    let code = get_code();
-                    let can_couple = code
-                        .chars()
-                        .nth(start as usize)
-                        .map_or(true, |c| c.is_whitespace() || "(){}[]".contains(c));
-                    let at_behind =
-                        code.chars().nth((start as usize).saturating_sub(1)) == Some('@');
-                    if (start != end || can_couple) && !at_behind {
-                        surround_code(state, '"', '"');
-                    } else if start == end && code.chars().nth(start as usize) == Some('"') {
-                        state.set_cursor((start + 1, start + 1));
-                    } else {
-                        replace_code(state, key);
-                    }
-                });
-            }
-            // Handle open delimiters
-            "(" | "[" | "{" if !os_ctrl(event) => {
-                // Surround the selected text with delimiters
-                let (open, close) = match key {
-                    "\"" => ('"', '"'),
-                    "(" => ('(', ')'),
-                    "[" => ('[', ']'),
-                    "{" => ('{', '}'),
-                    _ => unreachable!(),
-                };
-                let (start, end) = get_code_cursor().unwrap();
-                let code = get_code();
-                state.update(|state| {
-                    let can_couple = code
-                        .chars()
-                        .nth(start as usize)
-                        .map_or(true, |c| c.is_whitespace() || "(){}[]".contains(c));
-                    let at_behind =
-                        code.chars().nth((start as usize).saturating_sub(1)) == Some('@');
-                    if (start != end || can_couple) && !at_behind {
-                        surround_code(state, open, close);
-                    } else {
-                        replace_code(state, key);
-                    }
-                });
-            }
-            // Handle close delimiters
-            ")" | "]" | "}" if !event.meta_key() => {
-                let (start, end) = get_code_cursor().unwrap();
-                let code = get_code();
-                let close = key.chars().next().unwrap();
-                state.update(|state| {
-                    if start == end && code.chars().nth(start as usize) == Some(close) {
-                        state.set_cursor((start + 1, start + 1));
-                    } else {
-                        replace_code(state, key);
-                    }
-                });
-            }
-            // Line swapping with alt+up/down
-            key @ ("ArrowUp" | "ArrowDown") if event.alt_key() => {
-                let (_, end) = get_code_cursor().unwrap();
-                state.update(|state| {
-                    let code = get_code();
-                    let (line, col) = line_col(&code, end as usize);
-                    let line_index = line - 1;
-                    let up = key == "ArrowUp";
-                    let mut lines: Vec<String> = code.split('\n').map(Into::into).collect();
-                    if up && line_index > 0 || !up && line_index < lines.len() - 1 {
-                        let swap_index = if up { line_index - 1 } else { line_index + 1 };
-                        lines.swap(line_index, swap_index);
-                        let swapped: String = lines.join("\n");
-                        let mut new_end = 0;
-                        for (i, line) in lines.iter().enumerate() {
-                            if i == swap_index {
-                                let line_len = line.chars().count();
-                                if col < line_len {
-                                    new_end += col as u32;
-                                    new_end -= 1;
-                                } else {
-                                    new_end += line_len as u32;
-                                }
-                                break;
-                            }
-                            new_end += line.chars().count() as u32 + 1;
-                        }
-                        state.set_code(&swapped, Cursor::Set(new_end, new_end));
-                    }
-                });
-            }
-            // Intercept forward/back keyboard navigation
-            "ArrowLeft" | "ArrowRight" if !on_mac() && event.alt_key() => {}
-            // Chrome 😠
-            "Unidentified" => {
-                set_timeout(
-                    move || get_state.get().refresh_code(),
-                    Duration::from_millis(0),
-                );
-            }
-            // Normal key input
-            key if key.chars().count() == 1 && !os_ctrl(event) && !event.alt_key() => {
-                state.update(|state| replace_code(state, key));
-            }
-            _ => handled = false,
-        }
-        if handled {
-            event.prevent_default();
-            event.stop_propagation();
-            update_token_count(&get_code());
-        }
-    });
+        });
+    }
 
     // Handle composition events
     let update_composition = move |_| {
@@ -904,11 +896,14 @@ pub fn Editor<'a>(
                     .map(|title| (title, child.get_bounding_client_rect()))
             })
         else {
-            hover_elem.style().set_property("display", "none").unwrap();
+            (*hover_elem)
+                .style()
+                .set_property("display", "none")
+                .unwrap();
             return;
         };
         // Set hover elem pos to mouse pos
-        let style = hover_elem.style();
+        let style = (*hover_elem).style();
         let left = rect.left();
         let top = rect.bottom();
         _ = style.set_property("left", &format!("{left}px"));
@@ -916,18 +911,25 @@ pub fn Editor<'a>(
         // Set hover elem text to hovered data-title
         hover_elem.set_inner_text(&data_title);
         // Show hover elem
-        hover_elem.style().set_property("display", "block").unwrap();
+        (*hover_elem)
+            .style()
+            .set_property("display", "block")
+            .unwrap();
     };
 
     // Handle mouse leave events
     let code_mouse_leave = move |_| {
         let hover_elem: HtmlDivElement = element(&hover_id());
-        hover_elem.style().set_property("display", "none").unwrap();
+        (*hover_elem)
+            .style()
+            .set_property("display", "none")
+            .unwrap();
     };
 
     // Go to the next example
     let next_example = {
         let examples = examples.clone();
+        let run = run.clone();
         move |_| {
             set_example.update(|e| {
                 *e = (*e + 1) % examples.len();
@@ -942,6 +944,7 @@ pub fn Editor<'a>(
     // Go to the previous example
     let prev_example = {
         let examples = examples.clone();
+        let run = run.clone();
         move |_| {
             set_example.update(|e| {
                 *e = (*e + examples.len() - 1) % examples.len();
@@ -955,75 +958,80 @@ pub fn Editor<'a>(
     };
 
     // Glyph hover doc
-    let (glyph_doc, set_glyph_doc) = create_signal(View::default());
+    let (glyph_doc, set_glyph_doc) = arc_signal(().into_any());
     let onmouseleave = move |_| {
-        _ = glyph_doc_element().style().set_property("display", "none");
+        _ = (*glyph_doc_element())
+            .style()
+            .set_property("display", "none");
     };
 
     // Glyph buttons
     // These are the buttons that appear above the editor and allow the user to insert glyphs
-    let make_glyph_button = |prim: Primitive| {
-        let text = prim
-            .glyph()
-            .map(Into::into)
-            .or_else(|| prim.ascii().map(|s| s.to_string()))?;
-        let mut title = prim.name().to_string();
-        if let Some(ascii) = prim.ascii() {
-            title = format!("({}) {}", ascii, title);
-        }
-        // Navigate to the docs page on ctrl/shift+click
-        let onclick = move |event: MouseEvent| {
-            if os_ctrl(&event) {
-                // Open the docs page
-                window()
-                    .open_with_url_and_target(&format!("/docs/{}", prim.name()), "_blank")
-                    .unwrap();
-            } else if event.shift_key() {
-                // Redirect to the docs page
-                use_navigate()(
-                    &format!("/docs/{}", prim.name()),
-                    NavigateOptions::default(),
-                );
-            } else {
-                state.update(|state| replace_code(state, &prim.to_string()));
+    let make_glyph_button = {
+        |prim: Primitive| {
+            let text = prim
+                .glyph()
+                .map(Into::into)
+                .or_else(|| prim.ascii().map(|s| s.to_string()))?;
+            let mut title = prim.name().to_string();
+            if let Some(ascii) = prim.ascii() {
+                title = format!("({}) {}", ascii, title);
             }
-        };
-        // Show the glyph doc on mouseover
-        let onmouseover = move |_| {
-            set_glyph_doc.set(
-                view! {
-                    <Prim prim=prim/>
-                    { prim.is_experimental().then(||
-                        view! {
-                            <span class="experimental" style="font-size: 0.8em;">
-                                "⚠️ Experimental"
-                            </span>
-                        }
-                    ) }
-                    <br/>
-                    { prim.doc().short_text().into_owned() }
+            // Navigate to the docs page on ctrl/shift+click
+            let onclick = move |event: MouseEvent| {
+                if os_ctrl(&event) {
+                    // Open the docs page
+                    window()
+                        .open_with_url_and_target(&format!("/docs/{}", prim.name()), "_blank")
+                        .unwrap();
+                } else if event.shift_key() {
+                    // Redirect to the docs page
+                    use_navigate()(
+                        &format!("/docs/{}", prim.name()),
+                        NavigateOptions::default(),
+                    );
+                } else {
+                    state.update(|state| replace_code(state, &prim.to_string()));
                 }
-                .into_view(),
-            );
-            _ = glyph_doc_element().style().remove_property("display");
-        };
-        let mut class = "glyph-button glyph-title".to_string();
-        if prim.is_experimental() {
-            class.push_str(" experimental-glyph-button");
-        }
-        Some(
-            view! {
-                <button
-                    class=class
-                    data-title=title
-                    on:click=onclick
-                    on:mouseover=onmouseover
-                    on:mouseleave=onmouseleave>
-                    <div class={prim_class(prim)}>{ text }</div>
-                </button>
+            };
+            // Show the glyph doc on mouseover
+            let set_glyph_doc = set_glyph_doc.clone();
+            let onmouseover = move |_| {
+                set_glyph_doc.set(
+                    view! {
+                        <Prim prim=prim/>
+                        { prim.is_experimental().then(||
+                            view! {
+                                <span class="experimental" style="font-size: 0.8em;">
+                                    "⚠️ Experimental"
+                                </span>
+                            }
+                        ) }
+                        <br/>
+                        { prim.doc().short_text().into_owned() }
+                    }
+                    .into_any(),
+                );
+                _ = (*glyph_doc_element()).style().remove_property("display");
+            };
+            let mut class = "glyph-button glyph-title".to_string();
+            if prim.is_experimental() {
+                class.push_str(" experimental-glyph-button");
             }
-            .into_view(),
-        )
+            Some(
+                view! {
+                    <button
+                        class=class
+                        data-title=title
+                        on:click=onclick
+                        on:mouseover=onmouseover
+                        on:mouseleave=onmouseleave>
+                        <div class={prim_class(prim)}>{ text }</div>
+                    </button>
+                }
+                .into_any(),
+            )
+        }
     };
     let mut glyph_buttons: Vec<_> = Primitive::non_deprecated()
         .filter_map(make_glyph_button)
@@ -1125,10 +1133,13 @@ pub fn Editor<'a>(
             }
         };
         // Show the doc on mouseover
-        let onmouseover = move |_| {
-            if !doc.is_empty() {
-                set_glyph_doc.set(view!(<code>{ glyph }</code>" "{ title }).into_view());
-                _ = glyph_doc_element().style().remove_property("display");
+        let onmouseover = {
+            let set_glyph_doc = set_glyph_doc.clone();
+            move |_| {
+                if !doc.is_empty() {
+                    set_glyph_doc.set(view!(<code>{ glyph }</code>" "{ title }).into_any());
+                    _ = (*glyph_doc_element()).style().remove_property("display");
+                }
             }
         };
         glyph_buttons.push(
@@ -1142,7 +1153,7 @@ pub fn Editor<'a>(
                     {glyph}
                 </button>
             }
-            .into_view(),
+            .into_any(),
         );
     }
 
@@ -1191,7 +1202,7 @@ pub fn Editor<'a>(
                 { options }
             </select>
         }
-        .into_view(),
+        .into_any(),
     );
 
     // Select a class for the editor and code area
@@ -1208,7 +1219,7 @@ pub fn Editor<'a>(
     };
 
     // Show or hide the glyph buttons
-    let (show_glyphs, set_show_glyphs) = create_signal(match mode {
+    let (show_glyphs, set_show_glyphs) = signal(match mode {
         EditorMode::Example => false,
         EditorMode::Showcase | EditorMode::Pad => true,
     });
@@ -1249,22 +1260,25 @@ pub fn Editor<'a>(
 
     // This ensures the output of the first example is shown
     set_timeout(
-        move || {
-            if no_run {
-                let code = initial_code.get().unwrap();
-                set_initial_code.set(None);
-                state.update(|state| state.set_code(&code, Cursor::Ignore));
-            } else {
-                run(false, false);
+        {
+            let run = run.clone();
+            move || {
+                if no_run {
+                    let code = initial_code.get().unwrap();
+                    set_initial_code.set(None);
+                    state.update(|state| state.set_code(&code, Cursor::Ignore));
+                } else {
+                    run(false, false);
+                }
             }
         },
         Duration::from_millis(0),
     );
 
-    let (drag_message, set_drag_message) = create_signal("");
+    let (drag_message, set_drag_message) = signal("");
 
     // Get file drop events
-    window_event_listener(leptos_dom::ev::dragover, move |event: DragEvent| {
+    window_event_listener(tachys::html::event::dragover, move |event: DragEvent| {
         let event = event.dyn_into::<web_sys::DragEvent>().unwrap();
         event.prevent_default();
         event.stop_propagation();
@@ -1273,60 +1287,67 @@ pub fn Editor<'a>(
             set_drag_message.set("Drop file to load");
         }
     });
-    window_event_listener(leptos_dom::ev::dragleave, move |event: DragEvent| {
+    window_event_listener(tachys::html::event::dragleave, move |event: DragEvent| {
         let event = event.dyn_into::<web_sys::DragEvent>().unwrap();
         event.prevent_default();
         event.stop_propagation();
         set_drag_message.set("");
     });
 
-    let handle_load_files = move |files: FileList| {
-        let total_files = files.length();
-        let processed_files = Rc::new(Cell::new(0));
+    let handle_load_files = is_fn1({
+        let run = run.clone();
+        move |files: FileList| {
+            let total_files = files.length();
+            let processed_files = Rc::new(Cell::new(0));
 
-        for i in 0..total_files {
-            let file = files.get(i).unwrap();
-            let file_name = file.name();
-            let reader = FileReader::new().unwrap();
-            reader.read_as_array_buffer(&file).unwrap();
+            for i in 0..total_files {
+                let file = files.get(i).unwrap();
+                let file_name = file.name();
+                let reader = FileReader::new().unwrap();
+                reader.read_as_array_buffer(&file).unwrap();
 
-            let processed_files = Rc::clone(&processed_files);
-            let on_load = Closure::wrap(Box::new(move |event: Event| {
-                let event = event.dyn_into::<web_sys::ProgressEvent>().unwrap();
-                let reader = event.target().unwrap().dyn_into::<FileReader>().unwrap();
-                let bytes = reader
-                    .result()
-                    .unwrap()
-                    .dyn_into::<js_sys::ArrayBuffer>()
+                let processed_files = Rc::clone(&processed_files);
+                let run = run.clone();
+                let on_load = Closure::wrap(Box::new(move |event: Event| {
+                    let event = event.dyn_into::<web_sys::ProgressEvent>().unwrap();
+                    let reader = event.target().unwrap().dyn_into::<FileReader>().unwrap();
+                    let bytes = reader
+                        .result()
+                        .unwrap()
+                        .dyn_into::<js_sys::ArrayBuffer>()
+                        .unwrap();
+                    let bytes = js_sys::Uint8Array::new(&bytes);
+                    let path = PathBuf::from(&file_name);
+                    drop_file(path.clone(), bytes.to_vec());
+                    set_drag_message.set("");
+
+                    processed_files.set(processed_files.get() + 1);
+                    if processed_files.get() == total_files {
+                        run(true, false);
+                    }
+                }) as Box<dyn FnMut(_)>);
+
+                reader
+                    .add_event_listener_with_callback("load", on_load.as_ref().unchecked_ref())
                     .unwrap();
-                let bytes = js_sys::Uint8Array::new(&bytes);
-                let path = PathBuf::from(&file_name);
-                drop_file(path.clone(), bytes.to_vec());
-                set_drag_message.set("");
-
-                processed_files.set(processed_files.get() + 1);
-                if processed_files.get() == total_files {
-                    run(true, false);
-                }
-            }) as Box<dyn FnMut(_)>);
-
-            reader
-                .add_event_listener_with_callback("load", on_load.as_ref().unchecked_ref())
-                .unwrap();
-            on_load.forget();
+                on_load.forget();
+            }
         }
-    };
-
-    let listener = window_event_listener(leptos_dom::ev::drop, move |event: DragEvent| {
-        let event = event.dyn_into::<web_sys::DragEvent>().unwrap();
-        event.prevent_default();
-        event.stop_propagation();
-        let files = event.data_transfer().unwrap().files().unwrap();
-        if files.length() == 0 {
-            return;
-        }
-        handle_load_files(files);
     });
+
+    let listener = {
+        let handle_load_files = handle_load_files.clone();
+        window_event_listener(tachys::html::event::drop, move |event: DragEvent| {
+            let event = event.dyn_into::<web_sys::DragEvent>().unwrap();
+            event.prevent_default();
+            event.stop_propagation();
+            let files = event.data_transfer().unwrap().files().unwrap();
+            if files.length() == 0 {
+                return;
+            }
+            handle_load_files(files);
+        })
+    };
 
     on_cleanup(move || listener.remove());
 
@@ -1464,11 +1485,14 @@ pub fn Editor<'a>(
         let size = input.value();
         set_font_size(&size);
     };
-    let on_select_top_at_top = move |event: Event| {
-        let input: HtmlSelectElement = event.target().unwrap().dyn_into().unwrap();
-        let orientation = input.value() == "true";
-        set_top_at_top(orientation);
-        run(false, false);
+    let on_select_top_at_top = {
+        let run = run.clone();
+        move |event: Event| {
+            let input: HtmlSelectElement = event.target().unwrap().dyn_into().unwrap();
+            let orientation = input.value() == "true";
+            set_top_at_top(orientation);
+            run(false, false);
+        }
     };
     set_font_name(&get_font_name());
     set_font_size(&get_font_size());
@@ -1481,20 +1505,20 @@ pub fn Editor<'a>(
         input_element.dyn_ref::<HtmlInputElement>().unwrap().click();
     };
 
-    let files_selected = move |event: Event| {
+    let files_selected = is_fn1(move |event: Event| {
         let target = event.target().unwrap();
         let input_element = target.dyn_ref::<HtmlInputElement>().unwrap();
         let files = input_element.files().unwrap();
         handle_load_files(files);
         input_element.set_value("");
-    };
+    });
 
     let get_files_to_display = move || {
         // This is a hack to make this closure reactive.
         // The file list updates every time output changes.
         // The code runs immediately after dropping a file, so the output changes too.
         // Plus it handles cases where files are created/deleted after the code runs.
-        let _ = output.get();
+        // let _ = output.get();
 
         let excluded_files = ["example.txt", "example.ua"];
         backend::FILES.with(|files| {
@@ -1509,64 +1533,73 @@ pub fn Editor<'a>(
         })
     };
 
-    let file_tab_display = move || {
-        let files = get_files_to_display().clone();
-        if files.is_empty() {
-            return view! {
-                <div></div>
-            };
+    let file_tab_display = is_fn0({
+        let run = run.clone();
+        move || {
+            let files = get_files_to_display().clone();
+            if files.is_empty() {
+                return view!(<div></div>).into_any();
+            }
+
+            let file_list = get_files_to_display()
+                .into_iter()
+                .map(|path| {
+                    let path_clone = path.clone();
+                    let on_delete = {
+                        let run = run.clone();
+                        move |event: MouseEvent| {
+                            event.stop_propagation();
+                            delete_file(&path_clone);
+                            run(true, false);
+                        }
+                    };
+
+                    let path_clone = path.clone();
+                    let on_insert = {
+                        let run = run.clone();
+                        move |_: MouseEvent| {
+                            let content = backend::FILES.with(|files| {
+                                files
+                                    .borrow()
+                                    .iter()
+                                    .find(|(p, _)| *p == &path_clone)
+                                    .map(|(_, code)| code.clone())
+                                    .unwrap_or_default()
+                            });
+                            state.update(|state| {
+                                let to_insert = format_insert_file_code(&path_clone, content);
+                                replace_code(state, &to_insert);
+                            });
+                            run(true, false);
+                        }
+                    };
+
+                    let path_clone = path.clone();
+                    view! {
+                        <div
+                            class="pad-file-tab"
+                            on:click=on_insert
+                        >
+                            {path_clone.to_string_lossy().into_owned()}
+                            <span
+                                class="pad-file-tab-close"
+                                on:click=on_delete
+                                inner_html="&times;"
+                            />
+                        </div>
+                    }
+                })
+                .collect_view()
+                .into_any();
+
+            view! {
+                <div class="pad-files">
+                    {file_list}
+                </div>
+            }
+            .into_any()
         }
-
-        let file_list = get_files_to_display()
-            .into_iter()
-            .map(|path| {
-                let path_clone = path.clone();
-                let on_delete = move |event: MouseEvent| {
-                    event.stop_propagation();
-                    delete_file(&path_clone);
-                    run(true, false);
-                };
-
-                let path_clone = path.clone();
-                let on_insert = move |_: MouseEvent| {
-                    let content = backend::FILES.with(|files| {
-                        files
-                            .borrow()
-                            .iter()
-                            .find(|(p, _)| *p == &path_clone)
-                            .map(|(_, code)| code.clone())
-                            .unwrap_or_default()
-                    });
-                    state.update(|state| {
-                        let to_insert = format_insert_file_code(&path_clone, content);
-                        replace_code(state, &to_insert);
-                    });
-                    run(true, false);
-                };
-
-                let path_clone = path.clone();
-                view! {
-                    <div
-                        class="pad-file-tab"
-                        on:click=on_insert
-                    >
-                        {&path_clone.to_string_lossy().into_owned()}
-                        <span
-                            class="pad-file-tab-close"
-                            on:click=on_delete
-                            inner_html="&times;"
-                        />
-                    </div>
-                }
-            })
-            .collect_view();
-
-        view! {
-            <div class="pad-files">
-                {file_list}
-            </div>
-        }
-    };
+    });
 
     // Render
     view! {
@@ -1575,7 +1608,7 @@ pub fn Editor<'a>(
                 <div style=glyph_buttons_style>
                     <div class="glyph-buttons">{glyph_buttons}</div>
                 </div>
-                {file_tab_display}
+                // {file_tab_display}
                 <div id="settings" style=settings_style>
                     <div id="settings-left">
                         <div title="The maximum number of seconds a program can run for">
@@ -1697,7 +1730,7 @@ pub fn Editor<'a>(
                 <div class=editor_class>
                     <div id="code-area">
                         <div id={glyph_doc_id} class="glyph-doc" style="display: none">
-                            { move || glyph_doc.get() }
+                            glyph_doc
                             <div class="glyph-doc-ctrl-click">"Shift+click for more info (Ctrl/⌘+click for new tab)"</div>
                         </div>
                         <div
@@ -1714,15 +1747,14 @@ pub fn Editor<'a>(
                                 <textarea
                                     id=code_id
                                     class="code-entry"
-                                    autocorrect="false"
                                     autocapitalize="off"
                                     spellcheck="false"
                                     translate="no"
                                     on:paste=code_paste
                                     on:input=code_input
                                     on:mousemove=code_mouse_move
-                                    on:mouseleave=code_mouse_leave
-                                    value=initial_code_str>
+                                    on:mouseleave=code_mouse_leave>
+                                    initial_code_str
                                 </textarea>
                                 /////////////////////////
                                 <div
@@ -1770,11 +1802,11 @@ pub fn Editor<'a>(
                     <div class="output-frame">
                         <div class="output-lines">
                             <div class="output-diagnostics">
-                                { move || diag_output.get() }
+                               diag_output
                             </div>
                             <div class="output-wrapper">
                                 <div id=format!("output-{id}") class="output sized-code">
-                                    { move || output.get() }
+                                    output
                                     { move || get_state.get().challenge.as_ref().map(|chal| {
                                         let intended = chal.intended_answer.clone();
                                         let click_intended = move|_| {
@@ -1833,7 +1865,7 @@ pub fn Editor<'a>(
                 } }
             </div>
             <div id="editor-help">
-                { help.iter().map(|s| view!(<p>{s}</p>)).collect::<Vec<_>>() }
+                { help.iter().map(|s| view!(<p>{s.clone()}</p>)).collect::<Vec<_>>() }
             </div>
             <input
                 id=input_id
@@ -1888,12 +1920,13 @@ pub fn Prim(
                 <code><span class=symbol_class>{ symbol }</span>{name}</code>
             </a>
         }
+        .into_any()
     } else {
         view! {
             <a href=href class="prim-code-a">
                 <code class="prim-code" data-title=title><span class=symbol_class>{ symbol }</span>{name}</code>
             </a>
-        }
+        }.into_any()
     }
 }
 

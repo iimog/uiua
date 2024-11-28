@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use enum_iterator::{all, Sequence};
-use leptos::*;
+use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::*;
 use uiua::{Primitive, SysOp, EXAMPLE_UA};
@@ -69,23 +69,23 @@ pub struct TutorialParams {
 pub fn Tutorial() -> impl IntoView {
     let page_view = |page: TutorialPage| {
         let tut_view = match page {
-            TutorialPage::Introduction => TutorialIntroduction().into_view(),
-            TutorialPage::Basic => TutorialBasic().into_view(),
-            TutorialPage::Math => TutorialMath().into_view(),
-            TutorialPage::Arrays => TutorialArrays().into_view(),
-            TutorialPage::Types => TutorialTypes().into_view(),
-            TutorialPage::Bindings => TutorialBindings().into_view(),
-            TutorialPage::Functions => TutorialFunctions().into_view(),
-            TutorialPage::ControlFlow => TutorialControlFlow().into_view(),
-            TutorialPage::AdvancedStack => TutorialAdvancedStack().into_view(),
-            TutorialPage::Inverses => TutorialInverses().into_view(),
-            TutorialPage::PatternMatching => TutorialPatternMatching().into_view(),
-            TutorialPage::AdvancedArray => TutorialAdvancedArray().into_view(),
-            TutorialPage::ThinkingWithArrays => TutorialThinkingWithArrays().into_view(),
-            TutorialPage::Macros => TutorialMacros().into_view(),
-            TutorialPage::TacitCode => TutorialTacitCode().into_view(),
-            TutorialPage::Modules => TutorialModules().into_view(),
-            TutorialPage::Testing => TutorialTesting().into_view(),
+            TutorialPage::Introduction => TutorialIntroduction().into_any(),
+            TutorialPage::Basic => TutorialBasic().into_any(),
+            TutorialPage::Math => TutorialMath().into_any(),
+            TutorialPage::Arrays => TutorialArrays().into_any(),
+            TutorialPage::Types => TutorialTypes().into_any(),
+            TutorialPage::Bindings => TutorialBindings().into_any(),
+            TutorialPage::Functions => TutorialFunctions().into_any(),
+            TutorialPage::ControlFlow => TutorialControlFlow().into_any(),
+            TutorialPage::AdvancedStack => TutorialAdvancedStack().into_any(),
+            TutorialPage::Inverses => TutorialInverses().into_any(),
+            TutorialPage::PatternMatching => TutorialPatternMatching().into_any(),
+            TutorialPage::AdvancedArray => TutorialAdvancedArray().into_any(),
+            TutorialPage::ThinkingWithArrays => TutorialThinkingWithArrays().into_any(),
+            TutorialPage::Macros => TutorialMacros().into_any(),
+            TutorialPage::TacitCode => TutorialTacitCode().into_any(),
+            TutorialPage::Modules => TutorialModules().into_any(),
+            TutorialPage::Testing => TutorialTesting().into_any(),
         };
         view! {
             <A href="/docs">"Back to Docs Home"</A>
@@ -102,7 +102,7 @@ pub fn Tutorial() -> impl IntoView {
         }
     };
     move || match use_params::<TutorialParams>().get() {
-        Ok(params) => page_view(params.page).into_view(),
+        Ok(params) => page_view(params.page).into_any(),
         Err(_) => match use_params::<OtherTutorialParams>().get() {
             Ok(params) => view! {
                 <A href="/docs">"Back to Docs Home"</A>
@@ -113,8 +113,8 @@ pub fn Tutorial() -> impl IntoView {
                 <br/>
                 <A href="/docs">"Back to Docs Home"</A>
             }
-            .into_view(),
-            Err(_) => page_view(TutorialPage::Introduction).into_view(),
+            .into_any(),
+            Err(_) => page_view(TutorialPage::Introduction).into_any(),
         },
     }
 }
@@ -136,17 +136,17 @@ fn TutorialNav(page: TutorialPage) -> impl IntoView {
         page.next()
             .map(|p| {
                 view!( <div>"Next: "<A href=format!("/tutorial/{}", p.path())>{p.title()}</A>" 〉"</div>)
-                    .into_view()
+                    .into_any()
             })
-            .unwrap_or_else(|| view!( <div/>).into_view())
+            .unwrap_or_else(|| view!( <div/>).into_any())
     };
     let previous = move || {
         page.previous()
             .map(|p| {
                 view!( <div>"〈 Previous: "<A href=format!("/tutorial/{}", p.path())>{p.title()}</A></div>)
-                    .into_view()
+                    .into_any()
             })
-            .unwrap_or_else(|| view!( <div/>).into_view())
+            .unwrap_or_else(|| view!( <div/>).into_any())
     };
 
     view! {
@@ -345,9 +345,9 @@ fn TutorialBasic() -> impl IntoView {
 
 fn maybe_code<T: Display>(val: Option<T>) -> impl IntoView {
     if let Some(val) = val {
-        view! {  <code>{ val.to_string() }</code> }.into_view()
+        view! {  <code>{ val.to_string() }</code> }.into_any()
     } else {
-        view! {  "" }.into_view()
+        view! {  "" }.into_any()
     }
 }
 
@@ -1525,7 +1525,7 @@ fn TutorialMacros() -> impl IntoView {
 #[component]
 fn TutorialTacitCode() -> impl IntoView {
     view! {
-        { title_markdown("Tacit Code", "/text/tacit_code.md", ()).into_view() }
+        { title_markdown("Tacit Code", "/text/tacit_code.md", ()).into_any() }
 
         <br/>
         <br/>

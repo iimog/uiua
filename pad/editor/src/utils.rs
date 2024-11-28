@@ -1,12 +1,17 @@
-use base64::engine::{general_purpose::URL_SAFE, Engine};
-use leptos::*;
+use base64::engine::{
+    general_purpose::{STANDARD, URL_SAFE},
+    Engine,
+};
+use leptos::prelude::*;
 use std::path::Path;
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
 use std::{
     borrow::Cow,
-    cell::Cell,
     collections::HashMap,
     mem::{replace, take},
     str::FromStr,
+    sync::atomic::AtomicBool,
     time::Duration,
 };
 
@@ -37,7 +42,7 @@ pub struct ChallengeDef {
     pub tests: Vec<String>,
     pub hidden: String,
     pub flip: bool,
-    pub did_init_run: Cell<bool>,
+    pub did_init_run: Arc<AtomicBool>,
 }
 
 /// Handles setting the code in the editor, setting the cursor, and managing the history
@@ -143,13 +148,16 @@ impl State {
         let outer = element::<HtmlDivElement>(&self.code_outer_id);
 
         let height = format!("{}em", code.split('\n').count().max(1) as f32 * 1.25 + 0.75);
-        outer.style().set_property("min-height", &height).unwrap();
+        (*outer)
+            .style()
+            .set_property("min-height", &height)
+            .unwrap();
 
         let rect = &virtual_rect(&area, code);
         let width = rect.width();
         let new_width = format!("max(calc({width}px + 1em),100%)");
-        area.style().set_property("width", "auto").unwrap();
-        area.style().set_property("width", &new_width).unwrap();
+        (*area).style().set_property("width", "auto").unwrap();
+        (*area).style().set_property("width", &new_width).unwrap();
 
         area.set_value(code);
     }
@@ -224,12 +232,15 @@ fn virtual_rect(area: &HtmlTextAreaElement, text: &str) -> DomRect {
     let temp_span = (document().create_element("span"))
         .unwrap()
         .unchecked_into::<HtmlSpanElement>();
-    let style = temp_span.style();
+    let style = (*temp_span).style();
     style.set_property("visibility", "hidden").unwrap();
     style.set_property("white-space", "pre").unwrap();
     let area_style = &window().get_computed_style(area).unwrap().unwrap();
     let area_font = area_style.get_property_value("font").unwrap();
-    temp_span.style().set_property("font", &area_font).unwrap();
+    (*temp_span)
+        .style()
+        .set_property("font", &area_font)
+        .unwrap();
     let mut text = Cow::Borrowed(text);
     if text.ends_with('\n') {
         text.to_mut().push(' ');
@@ -491,7 +502,7 @@ fn build_code_lines(code: &str) -> CodeLines {
     lines
 }
 
-pub fn gen_code_view(code: &str) -> View {
+pub fn gen_code_view(code: &str) -> impl IntoView {
     fn pair_aliases() -> HashMap<(Primitive, Primitive), &'static str> {
         use Primitive::*;
         [
@@ -555,7 +566,7 @@ pub fn gen_code_view(code: &str) -> View {
         text: String,
         title: String,
         color_class: &str,
-        frag_views: &mut Vec<View>,
+        frag_views: &mut Vec<AnyView>,
     ) {
         let class = format!("code-span code-underline {}", color_class);
         let onmouseover = move |event: web_sys::MouseEvent| update_ctrl(&event);
@@ -571,7 +582,7 @@ pub fn gen_code_view(code: &str) -> View {
             data-title=title
             on:mouseover=onmouseover
             on:click=onclick>{text}</span>)
-        .into_view();
+        .into_any();
         frag_views.push(view);
     }
 
@@ -580,7 +591,7 @@ pub fn gen_code_view(code: &str) -> View {
     let mut line_views = Vec::new();
     for line in frags {
         if line.is_empty() {
-            line_views.push(view!(<div class="code-line"><br/></div>));
+            line_views.push(view!(<div class="code-line"><br/></div>).into_any());
             continue;
         }
         let mut frag_views = Vec::new();
@@ -589,15 +600,15 @@ pub fn gen_code_view(code: &str) -> View {
             match frag {
                 CodeFragment::Unspanned(s) => {
                     // logging::log!("unspanned escaped: `{}`", s);
-                    frag_views.push(view!(<span class="code-span">{s}</span>).into_view())
+                    frag_views.push(view!(<span class="code-span">{s}</span>).into_any())
                 }
                 CodeFragment::Ghost(short, Some(long)) => frag_views.push(
                     view!(<span class="code-span value-hint" data-title=long>{short}</span>)
-                        .into_view(),
+                        .into_any(),
                 ),
                 CodeFragment::Ghost(short, None) => frag_views
-                    .push(view!(<span class="code-span value-hint">{short}</span>).into_view()),
-                CodeFragment::Br => frag_views.push(view!(<br/>).into_view()),
+                    .push(view!(<span class="code-span value-hint">{short}</span>).into_any()),
+                CodeFragment::Br => frag_views.push(view!(<br/>).into_any()),
                 CodeFragment::Span(text, kind) => {
                     let color_class = match &kind {
                         SpanKind::Primitive(prim, sig) => prim_sig_class(*prim, *sig),
@@ -650,7 +661,7 @@ pub fn gen_code_view(code: &str) -> View {
                                     data-title=title
                                     on:mouseover=onmouseover
                                     on:click=onclick>{text}</span>)
-                            .into_view();
+                            .into_any();
                             frag_views.push(view)
                         }
                         SpanKind::Primitive(prim, _)
@@ -710,7 +721,7 @@ pub fn gen_code_view(code: &str) -> View {
                                     view!(
                                         <span class=class data-title="space character">@</span>
                                         <span class=space_class data-title="space character">" "</span>
-                                    ).into_view(),
+                                    ).into_any(),
                                 )
                             } else {
                                 let title = if text.starts_with('@') {
@@ -720,7 +731,7 @@ pub fn gen_code_view(code: &str) -> View {
                                 };
                                 frag_views.push(
                                     view!(<span class=class data-title=title>{text}</span>)
-                                        .into_view(),
+                                        .into_any(),
                                 )
                             }
                         }
@@ -738,21 +749,21 @@ pub fn gen_code_view(code: &str) -> View {
                                 data-title=title
                                 on:mouseover=onmouseover
                                 on:click=onclick>{text}</span>)
-                            .into_view();
+                            .into_any();
                             frag_views.push(view);
                         }
                         SpanKind::Signature => {
                             let class = format!("code-span {}", color_class);
                             let title = format!("{kind:?}").to_lowercase();
                             frag_views.push(
-                                view!(<span class=class data-title=title>{text}</span>).into_view(),
+                                view!(<span class=class data-title=title>{text}</span>).into_any(),
                             )
                         }
                         SpanKind::Placeholder(_) => {
                             let class = format!("code-span {}", color_class);
                             let title = "placeholder";
                             frag_views.push(
-                                view!(<span class=class data-title=title>{text}</span>).into_view(),
+                                view!(<span class=class data-title=title>{text}</span>).into_any(),
                             )
                         }
                         SpanKind::Label => {
@@ -780,7 +791,7 @@ pub fn gen_code_view(code: &str) -> View {
                             );
                             frag_views.push(
                                 view!(<span class="code-span" style=style data-title="label">{text}</span>)
-                                    .into_view(),
+                                    .into_any(),
                             )
                         }
                         SpanKind::FuncDelim(sig, set_inverses) => {
@@ -791,7 +802,7 @@ pub fn gen_code_view(code: &str) -> View {
                                 title.push_str(&set_inverses.to_string());
                             }
                             frag_views.push(
-                                view!(<span class=class data-title=title>{text}</span>).into_view(),
+                                view!(<span class=class data-title=title>{text}</span>).into_any(),
                             )
                         }
                         SpanKind::Subscript(prim, _) => {
@@ -802,7 +813,7 @@ pub fn gen_code_view(code: &str) -> View {
                                 "subscript".into()
                             };
                             frag_views.push(
-                                view!(<span class=class data-title=title>{text}</span>).into_view(),
+                                view!(<span class=class data-title=title>{text}</span>).into_any(),
                             )
                         }
                         SpanKind::Ident {
@@ -861,20 +872,20 @@ pub fn gen_code_view(code: &str) -> View {
                             let class =
                                 format!("code-span {} {}", binding_class(&text, &docs), private);
                             frag_views.push(
-                                view!(<span class=class data-title=title>{text}</span>).into_view(),
+                                view!(<span class=class data-title=title>{text}</span>).into_any(),
                             )
                         }
                         _ => {
                             let class = format!("code-span {color_class}");
-                            frag_views.push(view!(<span class=class>{text}</span>).into_view())
+                            frag_views.push(view!(<span class=class>{text}</span>).into_any())
                         }
                     }
                 }
             }
         }
-        line_views.push(view!(<div class="code-line">{frag_views}</div>))
+        line_views.push(view!(<div class="code-line">{frag_views}</div>).into_any())
     }
-    line_views.into_view()
+    line_views
 }
 
 fn init_rt() -> Uiua {
@@ -938,7 +949,7 @@ impl State {
                 (Err(answer), Err(users)) => answer.to_string() == users.to_string(),
                 _ => false,
             };
-            let mut output = if chal.did_init_run.get() {
+            let mut output = if chal.did_init_run.load(Relaxed) {
                 vec![OutputItem::String(if correct {
                     if hidden_correct {
                         "✅ Correct!".into()
@@ -951,7 +962,7 @@ impl State {
             } else {
                 Vec::new()
             };
-            chal.did_init_run.set(true);
+            chal.did_init_run.store(true, Relaxed);
             for section in output_sections {
                 output.push(OutputItem::Separator);
                 output.extend(section);
@@ -1122,23 +1133,25 @@ pub fn report_view(report: &Report) -> impl IntoView {
             if range.contains(&i) {
                 if range.start == i {
                     let omitted_count = newline_indices.len() - 20;
-                    frags.push(view!(<br/>).into_view());
-                    frags.push(view!(<br/>).into_view());
+                    frags.push(view!(<br/>).into_any());
+                    frags.push(view!(<br/>).into_any());
                     frags.push(view! {
                         <span class="output-report">{format!("     ...{omitted_count} omitted...")}</span>
-                    }.into_view());
-                    frags.push(view!(<br/>).into_view());
+                    }.into_any());
+                    frags.push(view!(<br/>).into_any());
                 }
                 continue;
             }
         }
         frags.push(match frag {
-            ReportFragment::Plain(s) => view!(<span class="output-report">{s}</span>).into_view(),
+            ReportFragment::Plain(s) => {
+                view!(<span class="output-report">{s.clone()}</span>).into_any()
+            }
             ReportFragment::Faint(s) => {
-                view!(<span class="output-report output-faint">{s}</span>).into_view()
+                view!(<span class="output-report output-faint">{s.clone()}</span>).into_any()
             }
             ReportFragment::Fainter(s) => {
-                view!(<span class="output-report output-fainter">{s}</span>).into_view()
+                view!(<span class="output-report output-fainter">{s.clone()}</span>).into_any()
             }
             ReportFragment::Colored(s, kind) => {
                 if frags.is_empty() {
@@ -1153,7 +1166,7 @@ pub fn report_view(report: &Report) -> impl IntoView {
                     ReportKind::Diagnostic(DiagnosticKind::Style) => "output-report output-style",
                     ReportKind::Diagnostic(DiagnosticKind::Info) => "output-report output-info",
                 };
-                view!(<span class=class>{s}</span>).into_view()
+                view!(<span class=class>{s.clone()}</span>).into_any()
             }
             ReportFragment::Newline => {
                 frag_lines.push((Vec::new(), false));
@@ -1168,7 +1181,7 @@ pub fn report_view(report: &Report) -> impl IntoView {
         } else {
             "output-line"
         };
-        frags.push(view!(<div class=class>{line}</div>).into_view());
+        frags.push(view!(<div class=class>{line}</div>).into_any());
     }
     view! {
         <div style="font-family: inherit">{frags}</div>
@@ -1248,7 +1261,7 @@ where
         .flatten()
         .and_then(|s| {
             s.parse()
-                .map_err(|e| logging::log!("Error parsing local var {name:?} = {s:?}: {e}"))
+                .map_err(|e| crate::log!("Error parsing local var {name:?} = {s:?}: {e}"))
                 .ok()
         })
         .unwrap_or_else(default)
@@ -1422,5 +1435,63 @@ pub fn format_insert_file_code(path: &Path, content: Vec<u8>) -> String {
         format!("{function} {file_name:?}\n")
     } else {
         format!("# {byte_count} bytes\n# {function} {file_name:?}\n")
+    }
+}
+
+pub fn render_output_item(item: OutputItem, allow_autoplay: bool) -> AnyView {
+    match item {
+        OutputItem::String(s) => {
+            if s.is_empty() {
+                view!(<div class="output-item"><br/></div>).into_any()
+            } else {
+                view!(<div class="output-item">{s}</div>).into_any()
+            }
+        }
+        OutputItem::Classed(class, s) => {
+            let class = format!("output-item {class}");
+            view!(<div class=class>{s}</div>).into_any()
+        }
+        OutputItem::Faint(s) => view!(<div class="output-item output-fainter">{s}</div>).into_any(),
+        OutputItem::Image(bytes, label) => {
+            let encoded = STANDARD.encode(bytes);
+            view!(<div class="output-media-wrapper">
+                        <div class="output-image-label">{label}</div>
+                        <img class="output-image" src={format!("data:image/png;base64,{encoded}")} />
+                    </div>)
+                        .into_any()
+        }
+        OutputItem::Gif(bytes, label) => {
+            let encoded = STANDARD.encode(bytes);
+            view!(<div class="output-media-wrapper">
+                        <div class="output-image-label">{label}</div>
+                        <img class="output-image" src={format!("data:image/gif;base64,{encoded}")} />
+                    </div>)
+                        .into_any()
+        }
+        OutputItem::Audio(bytes, label) => {
+            let encoded = STANDARD.encode(bytes);
+            let src = format!("data:audio/wav;base64,{}", encoded);
+            let label = label.map(|s| format!("{s}:"));
+            if allow_autoplay {
+                view!(<div class="output-media-wrapper">
+                            <div class="output-item output-audio-label">{label}</div>
+                            <audio class="output-audio" controls autoplay src=src/>
+                        </div>)
+                .into_any()
+            } else {
+                view!(<div class="output-media-wrapper">
+                            <div class="output-item output-audio-label">{label}</div>
+                            <audio class="output-audio" controls src=src/>
+                        </div>)
+                .into_any()
+            }
+        }
+        OutputItem::Svg(s) => view!(<div><img
+                        class="output-image"
+                        src={format!("data:image/svg+xml;utf8, {}", urlencoding::encode(&s))}/>
+                    </div>)
+        .into_any(),
+        OutputItem::Report(report) => report_view(&report).into_any(),
+        OutputItem::Separator => view!(<div class="output-item"><hr/></div>).into_any(),
     }
 }

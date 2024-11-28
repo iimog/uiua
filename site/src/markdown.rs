@@ -2,7 +2,7 @@ use comrak::{
     nodes::{AstNode, ListType, NodeValue},
     *,
 };
-use leptos::*;
+use leptos::prelude::*;
 use uiua::{Inputs, Primitive, Token};
 use uiua_editor::{backend::fetch, Editor};
 
@@ -17,16 +17,16 @@ pub fn Markdown<S: Into<String>>(src: S) -> impl IntoView {
 #[component]
 pub fn Fetch<S: Into<String>, F: Fn(&str) -> View + 'static>(src: S, f: F) -> impl IntoView {
     let src = src.into();
-    let (src, _) = create_signal(src);
+    let (src, _) = signal(src);
     let once = create_resource(
         || (),
         move |_| async move { fetch(&src.get_untracked()).await.unwrap() },
     );
     view! {{
         move || match once.get() {
-            Some(text) if text.starts_with("<!DOCTYPE html>") => view!(<NotFound/>).into_view(),
-            Some(text) => view!(<ScrollToHash/>{f(&text)}).into_view(),
-            None => view! {<h3 class="running-text">"Loading..."</h3>}.into_view(),
+            Some(text) if text.starts_with("<!DOCTYPE html>") => view!(<NotFound/>).into_any(),
+            Some(text) => view!(<ScrollToHash/>{f(&text)}).into_any(),
+            None => view! {<h3 class="running-text">"Loading..."</h3>}.into_any(),
         }
     }}
 }
@@ -69,34 +69,34 @@ fn node_view<'a>(node: &'a AstNode<'a>) -> View {
                 .and_then(|text| text.strip_suffix(']'))
             {
                 if let Some(prim) = Primitive::from_name(text) {
-                    return view!(<Prim prim=prim/>).into_view();
+                    return view!(<Prim prim=prim/>).into_any();
                 }
             }
-            text.into_view()
+            text.into_any()
         }
         NodeValue::Heading(heading) => {
             let id = all_text(node).to_lowercase().replace(' ', "-");
             match heading.level {
-                0 | 1 => view!(<h1 id=id>{children}</h1>).into_view(),
+                0 | 1 => view!(<h1 id=id>{children}</h1>).into_any(),
                 2 => {
                     if id.is_empty() {
-                        view!(<h2 id=id>{children}</h2>).into_view()
+                        view!(<h2 id=id>{children}</h2>).into_any()
                     } else {
-                        view!(<Hd id={&id}>{children}</Hd>).into_view()
+                        view!(<Hd id={&id}>{children}</Hd>).into_any()
                     }
                 }
-                3 => view!(<h3 id=id>{children}</h3>).into_view(),
-                4 => view!(<h4 id=id>{children}</h4>).into_view(),
-                5 => view!(<h5 id=id>{children}</h5>).into_view(),
-                _ => view!(<h6 id=id>{children}</h6>).into_view(),
+                3 => view!(<h3 id=id>{children}</h3>).into_any(),
+                4 => view!(<h4 id=id>{children}</h4>).into_any(),
+                5 => view!(<h5 id=id>{children}</h5>).into_any(),
+                _ => view!(<h6 id=id>{children}</h6>).into_any(),
             }
         }
         NodeValue::List(list) => match list.list_type {
-            ListType::Bullet => view!(<ul>{children}</ul>).into_view(),
-            ListType::Ordered => view!(<ol>{children}</ol>).into_view(),
+            ListType::Bullet => view!(<ul>{children}</ul>).into_any(),
+            ListType::Ordered => view!(<ol>{children}</ol>).into_any(),
         },
-        NodeValue::Item(_) => view!(<li>{children}</li>).into_view(),
-        NodeValue::Paragraph => view!(<p>{children}</p>).into_view(),
+        NodeValue::Item(_) => view!(<li>{children}</li>).into_any(),
+        NodeValue::Paragraph => view!(<p>{children}</p>).into_any(),
         NodeValue::Code(code) => {
             let mut inputs = Inputs::default();
             let (tokens, errors, _) = uiua::lex(&code.literal, (), &mut inputs);
@@ -109,17 +109,17 @@ fn node_view<'a>(node: &'a AstNode<'a>) -> View {
                             if prim.name() == text
                                 || prim.glyph().is_some_and(|c| c.to_string() == text) =>
                         {
-                            frags.push(view!(<Prim prim=prim glyph_only=true/>).into_view())
+                            frags.push(view!(<Prim prim=prim glyph_only=true/>).into_any())
                         }
                         _ => {
-                            frags = vec![view!(<code>{code.literal.clone()}</code>).into_view()];
+                            frags = vec![view!(<code>{code.literal.clone()}</code>).into_any()];
                             break;
                         }
                     }
                 }
-                view!(<span>{frags}</span>).into_view()
+                view!(<span>{frags}</span>).into_any()
             } else {
-                view!(<code>{code.literal.clone()}</code>).into_view()
+                view!(<code>{code.literal.clone()}</code>).into_any()
             }
         }
         NodeValue::Link(link) => {
@@ -129,34 +129,34 @@ fn node_view<'a>(node: &'a AstNode<'a>) -> View {
                 .map(|(a, b)| if a.len() > b.len() { a } else { b })
                 .unwrap_or(&text);
             if let Some(prim) = Primitive::from_name(name).or_else(|| Primitive::from_name(&text)) {
-                view!(<Prim prim=prim/>).into_view()
+                view!(<Prim prim=prim/>).into_any()
             } else {
                 if name.chars().count() == 1 {
                     if let Some(prim) = Primitive::from_glyph(name.chars().next().unwrap()) {
-                        return view!(<Prim prim=prim glyph_only=true/>).into_view();
+                        return view!(<Prim prim=prim glyph_only=true/>).into_any();
                     }
                 }
-                view!(<a href={&link.url} title={&link.title}>{text}</a>).into_view()
+                view!(<a href={&link.url} title={&link.title}>{text}</a>).into_any()
             }
         }
-        NodeValue::Emph => view!(<em>{children}</em>).into_view(),
-        NodeValue::Strong => view!(<strong>{children}</strong>).into_view(),
-        NodeValue::Strikethrough => view!(<del>{children}</del>).into_view(),
-        NodeValue::LineBreak => view!(<br/>).into_view(),
+        NodeValue::Emph => view!(<em>{children}</em>).into_any(),
+        NodeValue::Strong => view!(<strong>{children}</strong>).into_any(),
+        NodeValue::Strikethrough => view!(<del>{children}</del>).into_any(),
+        NodeValue::LineBreak => view!(<br/>).into_any(),
         NodeValue::CodeBlock(block) => {
             if block.literal.trim() == "LOGO" {
-                view!(<Editor example=LOGO/>).into_view()
+                view!(<Editor example=LOGO/>).into_any()
             } else if (block.info.is_empty() || block.info.starts_with("uiua"))
                 && uiua::parse(&block.literal, (), &mut Default::default())
                     .1
                     .is_empty()
             {
-                view!(<Editor example={block.literal.trim_end()}/>).into_view()
+                view!(<Editor example={block.literal.trim_end()}/>).into_any()
             } else {
-                view!(<code class="code-block">{&block.literal}</code>).into_view()
+                view!(<code class="code-block">{&block.literal}</code>).into_any()
             }
         }
-        NodeValue::ThematicBreak => view!(<hr/>).into_view(),
+        NodeValue::ThematicBreak => view!(<hr/>).into_any(),
         NodeValue::Image(image) => {
             let mut class = "";
             let mut alt = leaf_text(node).unwrap_or_default();
@@ -164,9 +164,9 @@ fn node_view<'a>(node: &'a AstNode<'a>) -> View {
                 alt = a.trim_end().into();
                 class = "image-visibility";
             }
-            view!(<img src={&image.url} alt={alt.clone()} title=alt class=class/>).into_view()
+            view!(<img src={&image.url} alt={alt.clone()} title=alt class=class/>).into_any()
         }
-        _ => children.into_view(),
+        _ => children.into_any(),
     }
 }
 

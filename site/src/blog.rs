@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use leptos::*;
+use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::*;
 
@@ -54,7 +54,7 @@ fn BlogHome() -> impl IntoView {
                 let name = name.to_string();
                 let date = date.to_string();
                 view!(<h3><span class="output-faint">{date}" - "</span><A href={format!("/blog/{path}")}>{name}</A></h3>)
-            }).collect::<Vec<_>>().into_view()
+            }).collect::<Vec<_>>().into_any()
         }
     }
 }
@@ -82,7 +82,7 @@ fn BlogPage(name: String) -> impl IntoView {
 
 #[component]
 fn BlogRssButton() -> impl IntoView {
-    let (copied, set_copied) = create_signal(false);
+    let (copied, set_copied) = signal(false);
     view! {
         <button
             href="/blog/feed.rss"

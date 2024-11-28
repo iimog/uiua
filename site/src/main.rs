@@ -14,9 +14,9 @@ use std::{cell::Cell, sync::OnceLock, time::Duration};
 
 use base64::engine::{general_purpose::URL_SAFE, Engine};
 use js_sys::Date;
-use leptos::*;
+use leptos::prelude::*;
 use leptos_meta::*;
-use leptos_router::*;
+use leptos_router::{components::*, *};
 use uiua::{now, ConstantDef, Primitive, SysOp};
 use uiua_editor::{
     binding_name_class, prim_class, utils::ChallengeDef, Editor, EditorMode, EDITOR_SHORTCUTS,
@@ -54,8 +54,8 @@ pub fn Site() -> impl IntoView {
         "A programming language for variable dislikers",
     ];
     let subtitles_rare = [
-        view!("Check out "<a href="https://arraycast.com/">"The Array Cast"</a>"!").into_view(),
-        view!(<a href="https://youtu.be/seVSlKazsNk">"Point-Free or Die"</a>).into_view(),
+        view!("Check out "<a href="https://arraycast.com/">"The Array Cast"</a>"!").into_any(),
+        view!(<a href="https://youtu.be/seVSlKazsNk">"Point-Free or Die"</a>).into_any(),
         view! {
             <div style="font-style: normal">
                 <a href="/tutorial/advancedstack#planet-notation" style="text-decoration: none">"🌍🪐"</a>" "
@@ -65,11 +65,11 @@ pub fn Site() -> impl IntoView {
                 </code>
             </div>
         }
-        .into_view(),
-        view!("Check out "<a href="https://tacittalk.com/">"Tacit Talk"</a>"!").into_view(),
-        "Abandon nominativity. Embrace relativity.".into_view(),
-        view!(<div style="font-style: normal"><Prim prim=Under glyph_only=true/>"🗄️🍴"</div>).into_view(),
-        "It's got um...I um...arrays".into_view(),
+        .into_any(),
+        view!("Check out "<a href="https://tacittalk.com/">"Tacit Talk"</a>"!").into_any(),
+        "Abandon nominativity. Embrace relativity.".into_any(),
+        view!(<div style="font-style: normal"><Prim prim=Under glyph_only=true/>"🗄️🍴"</div>).into_any(),
+        "It's got um...I um...arrays".into_any(),
     ];
     let local_storage = window().local_storage().unwrap().unwrap();
     let mut visits: usize = (local_storage.get_item("visits").ok().flatten())
@@ -77,9 +77,10 @@ pub fn Site() -> impl IntoView {
         .unwrap_or(0);
     let subtitle = if visits % 3 < 2 {
         subtitles_common[(visits as f64 * 2.0 / 3.0).round() as usize % subtitles_common.len()]
-            .into_view()
+            .into_any()
     } else {
-        subtitles_rare[visits / 3 % subtitles_rare.len()].clone()
+        let i = visits / 3 % subtitles_rare.len();
+        subtitles_rare.into_iter().nth(i).unwrap()
     };
     visits = visits.overflowing_add(1).0;
 
@@ -325,12 +326,13 @@ pub fn Prim(
                 <code><span class=symbol_class>{ symbol }</span>{name}</code>
             </a>
         }
+        .into_any()
     } else {
         view! {
             <a href=href class="prim-code-a">
                 <code class="prim-code" data-title=title><span class=symbol_class>{ symbol }</span>{name}</code>
             </a>
-        }
+        }.into_any()
     }
 }
 
@@ -441,7 +443,7 @@ pub fn PadPage() -> impl IntoView {
     let help = &["Note: Uiua is not yet stable", &version];
     view! {
         <Title text="Pad - Uiua"/>
-        <Editor mode=EditorMode::Pad example={ &src } help=help/>
+        <Editor mode=EditorMode::Pad example={ src } help=help/>
         <br/>
         <br/>
         {
@@ -468,7 +470,7 @@ pub fn PadPage() -> impl IntoView {
         </code>
         <p>"Want a pad-like experience in the native interpreter? Try the "<code>"uiua -w"</code>" command to show output in a window."</p>
         <p>"You can download the newest version of the native interpreter "<a href="https://github.com/uiua-lang/uiua/releases">"here"</a>"."</p>
-    }
+    }.into_any()
 }
 
 #[component]
@@ -672,7 +674,7 @@ fn ScrollToHash() -> impl IntoView {
                     move || {
                         let id = hash.trim_start_matches('#');
                         if let Some(elem) = get_element::<Element>(id) {
-                            elem.scroll_into_view();
+                            elem.scroll_into_any();
                         }
                     },
                     Duration::from_millis(0),

@@ -7,9 +7,9 @@ use std::{
     sync::Mutex,
 };
 
-use crate::{get_ast_time, START_TIME};
+use crate::{get_ast_time, log, START_TIME};
 use js_sys::Date;
-use leptos::*;
+use leptos::{prelude::*, task::spawn_local};
 use uiua::{now, GitTarget, Handle, Report, SysBackend, EXAMPLE_TXT, EXAMPLE_UA};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -380,10 +380,10 @@ impl SysBackend for WebBackend {
         }
         let res = CACHE.with(|cache| {
             if let Some(res) = cache.borrow().get(&url) {
-                logging::log!("Using cached module for {url:?}");
+                log!("Using cached module for {url:?}");
                 Some(res.clone())
             } else {
-                logging::log!("Fetching url: {url}");
+                log!("Fetching url: {url}");
                 spawn_local(async move {
                     let res = fetch(&url).await;
                     CACHE.with(|cache| {

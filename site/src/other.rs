@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use leptos::*;
+use leptos::prelude::*;
 use leptos_meta::*;
 use uiua::{ConstClass, Primitive, SysOp, CONSTANTS};
 use uiua_editor::Editor;
@@ -158,7 +158,7 @@ pub fn Constants() -> impl IntoView {
                 doc_line_fragments_to_view(&con.doc_frags())
             }</div></td>
         </tr>)
-        .into_view();
+        .into_any();
         by_class.entry(con.class).or_default().push(view);
     }
     let class_cols = [
@@ -176,7 +176,7 @@ pub fn Constants() -> impl IntoView {
                         doc_line_fragments_to_view(&con.doc_frags())
                     }</div></td>
                 </tr>)
-                .into_view();
+                .into_any();
                 rows.push(view);
             }
             tables.push(view!(
@@ -315,81 +315,78 @@ pub fn Combinators() -> impl IntoView {
     use Primitive::*;
     let combinators = [
         (
-            view!(<Prim prim=Identity/>).into_view(),
+            view!(<Prim prim=Identity/>).into_any(),
             ("∘", 1, "I", "Identity"),
         ),
         (
-            view!(<Prims prims=[Dip, Pop]/>).into_view(),
+            view!(<Prims prims=[Dip, Pop]/>).into_any(),
             ("⊙◌", 2, "K", "Kestrel"),
         ),
         (
-            view!(<Prims prims=[Pop]/>" or "<Prims prims=[Gap, Identity]/>).into_view(),
+            view!(<Prims prims=[Pop]/>" or "<Prims prims=[Gap, Identity]/>).into_any(),
             ("◌\n⋅∘", 2, "KI", "Kite"),
         ),
         (
-            view!(<Prim prim=Dup/>).into_view(),
+            view!(<Prim prim=Dup/>).into_any(),
             ("⊂.", 1, "W", "Warbler"),
         ),
         (
-            view!(<Prim prim=Flip/>).into_view(),
+            view!(<Prim prim=Flip/>).into_any(),
             ("⊂:", 2, "C", "Cardinal"),
         ),
         (View::default(), ("⊢⇌", 1, "B", "Bluebird")),
         (View::default(), ("⇌⊂", 2, "B1", "Blackbird")),
         (
-            view!(<Prim prim=On/>).into_view(),
+            view!(<Prim prim=On/>).into_any(),
             ("⊂⟜¯", 1, "S", "Starling"),
         ),
         (
-            view!(<Prim prim=Dup/>).into_view(),
+            view!(<Prim prim=Dup/>).into_any(),
             ("≍⇌.", 1, "Σ", "Violet Starling"),
         ),
-        (view!(<Prim prim=Dip/>).into_view(), ("⊟⊙⇌", 2, "D", "Dove")),
+        (view!(<Prim prim=Dip/>).into_any(), ("⊟⊙⇌", 2, "D", "Dove")),
         (View::default(), ("⊟⇌", 2, "Δ", "Zebra Dove")),
         (
-            view!(<Prim prim=Fork/>).into_view(),
+            view!(<Prim prim=Fork/>).into_any(),
             ("⊟⊃¯⇌", 1, "Φ", "Phoenix"),
         ),
-        (view!(<Prim prim=Both/>).into_view(), ("⊂∩□", 2, "Ψ", "Psi")),
+        (view!(<Prim prim=Both/>).into_any(), ("⊂∩□", 2, "Ψ", "Psi")),
         (
-            view!(<Prim prim=Bracket/>).into_view(),
+            view!(<Prim prim=Bracket/>).into_any(),
             ("⊟⊓¯⇌", 2, "D2", "Dovekie"),
         ),
         (
-            view!(<Prim prim=On/>).into_view(),
+            view!(<Prim prim=On/>).into_any(),
             ("⊟⟜+", 2, "N", "Eastern Nicator"),
         ),
         (
-            view!(<Prim prim=By/>).into_view(),
+            view!(<Prim prim=By/>).into_any(),
             ("⊟⊸+", 2, "ν", "Western Nicator"),
         ),
-        (
-            view!(<Prim prim=Dip/>).into_view(),
-            ("⊟⊙+", 3, "E", "Eagle"),
-        ),
+        (view!(<Prim prim=Dip/>).into_any(), ("⊟⊙+", 3, "E", "Eagle")),
         (View::default(), ("⊟+", 3, "ε", "Golden Eagle")),
         (
-            view!(<Prim prim=Fork/>).into_view(),
+            view!(<Prim prim=Fork/>).into_any(),
             ("⊟⊃¯+", 2, "X", "Eastern Kingbird"),
         ),
         (
-            view!(<Prim prim=Fork/>).into_view(),
+            view!(<Prim prim=Fork/>).into_any(),
             ("⊟⊃+¯", 2, "χ", "Western Kingbird"),
         ),
         (
-            view!(<Prim prim=Bracket/>).into_view(),
+            view!(<Prim prim=Bracket/>).into_any(),
             ("⊟⊓¯+", 3, "R", "Eastern Parotia"),
         ),
         (
-            view!(<Prim prim=Bracket/>).into_view(),
+            view!(<Prim prim=Bracket/>).into_any(),
             ("⊟⊓+¯", 3, "ρ", "Western Parotia"),
         ),
         (
-            view!(<Prim prim=Fork/>).into_view(),
+            view!(<Prim prim=Fork/>).into_any(),
             ("⊟⊃+-", 2, "Φ1", "Pheasant"),
         ),
         (
-            view!(<Prim prim=Bracket/>).into_view(),
+            view!(<Prim prim=Bracket/>).into_any(),
             ("⊟⊓-+", 4, "Ê", "Bald Eagle"),
         ),
     ];
@@ -422,9 +419,9 @@ pub fn Combinators() -> impl IntoView {
             });
             let symbol_view = if let Some(sym) = symbol.strip_suffix(|c: char| c.is_ascii_digit()) {
                 let sub = symbol.chars().rev().take_while(char::is_ascii_digit).collect::<String>();
-                view!({ sym }<sub>{ sub }</sub>).into_view()
+                view!({ sym }<sub>{ sub }</sub>).into_any()
             } else {
-                symbol.into_view()
+                symbol.into_any()
             };
             let onclick = {
                 let diagram = diagram.clone();

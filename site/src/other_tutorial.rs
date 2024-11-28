@@ -1,5 +1,5 @@
 use enum_iterator::{all, Sequence};
-use leptos::*;
+use leptos::prelude::*;
 use leptos_meta::Title;
 use leptos_router::*;
 use uiua::{Primitive, SysOp};
@@ -25,18 +25,18 @@ impl OtherTutorialPage {
     pub fn view(&self) -> View {
         match self {
             Self::Strings => {
-                title_markdown("Strings", "/text/strings.md", strings_challenges).into_view()
+                title_markdown("Strings", "/text/strings.md", strings_challenges).into_any()
             }
             Self::FilesAndStreams => {
-                title_markdown("Files and Streams", "/text/files_and_streams.md", ()).into_view()
+                title_markdown("Files and Streams", "/text/files_and_streams.md", ()).into_any()
             }
-            Self::Audio => Audio().into_view(),
-            Self::Images => ImagesAndGifs().into_view(),
-            Self::Documentation => Documentation().into_view(),
+            Self::Audio => Audio().into_any(),
+            Self::Images => ImagesAndGifs().into_any(),
+            Self::Documentation => Documentation().into_any(),
             Self::CodeTactility => {
-                title_markdown("Code Tactility", "/text/code_tactility.md", ()).into_view()
+                title_markdown("Code Tactility", "/text/code_tactility.md", ()).into_any()
             }
-            Self::Ranges => title_markdown("Ranges", "/text/ranges.md", ()).into_view(),
+            Self::Ranges => title_markdown("Ranges", "/text/ranges.md", ()).into_any(),
         }
     }
     pub fn title(&self) -> &'static str {
