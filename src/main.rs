@@ -21,7 +21,7 @@ use colored::*;
 use notify::{EventKind, RecursiveMode, Watcher};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use rustyline::{error::ReadlineError, DefaultEditor};
+use rustyline::{error::ReadlineError, history::History, DefaultEditor};
 use terminal_size::terminal_size;
 use uiua::{
     format::{format_file, format_str, FormatConfig, FormatConfigSource},
@@ -300,9 +300,10 @@ fn main() {
             #[cfg(feature = "audio")]
             audio_options,
             stack,
+            no_history,
             args,
         }) => {
-            let config = FormatConfig {
+            let fmt_config = FormatConfig {
                 trailing_newline: false,
                 ..FormatConfig::from_source(formatter_options.format_config_source, None)
                     .unwrap_or_else(fail)
@@ -317,7 +318,13 @@ fn main() {
                 compiler.load_file(file).unwrap_or_else(fail);
                 rt.run_compiler(&mut compiler).unwrap_or_else(fail);
             }
-            repl(rt, compiler, true, stack, config);
+            let config = ReplConfig {
+                color: true,
+                stack,
+                no_history,
+                fmt_config,
+            };
+            repl(rt, compiler, config);
         }
         Some(Comm::Update {
             main,
@@ -846,6 +853,8 @@ enum Comm {
         audio_options: AudioOptions,
         #[clap(short = 's', long, help = "Don't clear the stack after each line")]
         stack: bool,
+        #[clap(short = 'n', long, help = "Don't load or save history")]
+        no_history: bool,
         #[clap(trailing_var_arg = true)]
         args: Vec<String>,
     },
@@ -1087,15 +1096,30 @@ fn format_multi_files(config: &FormatConfig) -> Result<(), UiuaError> {
     Ok(())
 }
 
-fn repl(mut env: Uiua, mut compiler: Compiler, color: bool, stack: bool, config: FormatConfig) {
+struct ReplConfig {
+    color: bool,
+    stack: bool,
+    no_history: bool,
+    fmt_config: FormatConfig,
+}
+
+fn repl(mut env: Uiua, mut compiler: Compiler, config: ReplConfig) {
+    // Init runtime and compiler
     env = env.with_interrupt_hook(|| PRESSED_CTRL_C.swap(false, Ordering::Relaxed));
     compiler.pre_eval_mode(PreEvalMode::Line);
+    // Print welcome message
     println!(
         "Uiua {} (end with ctrl+C, type `help` for a list of commands)\n",
         env!("CARGO_PKG_VERSION")
     );
+    // Init repl
     let mut line_reader = DefaultEditor::new().expect("Failed to read from Stdin");
+    let history_path = Path::new(".uiua-history");
+    if !config.no_history {
+        _ = line_reader.history_mut().load(history_path);
+    }
     loop {
+        // Read code or handle commands
         let mut code = match line_reader.readline("    ") {
             Ok(code) => {
                 match code.trim() {
@@ -1114,19 +1138,30 @@ fn repl(mut env: Uiua, mut compiler: Compiler, color: bool, stack: bool, config:
                         println!();
                         continue;
                     }
-                    "exit" => break,
+                    "exit" => {
+                        if !config.no_history {
+                            _ = line_reader.history_mut().save(history_path);
+                        }
+                        break;
+                    }
                     _ => {}
                 }
                 code
             }
-            Err(ReadlineError::Eof | ReadlineError::Interrupted) => break,
+            Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
+                if !config.no_history {
+                    _ = line_reader.history_mut().save(history_path);
+                }
+                break;
+            }
             Err(_) => panic!("Failed to read from Stdin"),
         };
         if code.is_empty() {
             continue;
         }
 
-        match format_str(&code, &config) {
+        // Format code
+        match format_str(&code, &config.fmt_config) {
             Ok(formatted) => {
                 code = formatted.output;
                 _ = line_reader.add_history_entry(&code);
@@ -1138,16 +1173,18 @@ fn repl(mut env: Uiua, mut compiler: Compiler, color: bool, stack: bool, config:
             }
         }
 
+        // Run code
         let backup_comp = compiler.clone();
         let backup_stack = env.stack().to_vec();
         let res = compiler.load_str(&code).map(drop);
         println!("    {}", color_code(&code, &compiler));
         let res = res.and_then(|()| env.run_compiler(&mut compiler));
 
+        // Print output or handle errors
         match res {
             Ok(()) => {
-                print_stack(env.stack(), color);
-                if !stack {
+                print_stack(env.stack(), config.color);
+                if !config.stack {
                     env.take_stack();
                 }
             }
@@ -1158,7 +1195,7 @@ fn repl(mut env: Uiua, mut compiler: Compiler, color: bool, stack: bool, config:
                     env.push(val);
                 }
                 eprintln!("{}", e.report());
-                print_stack(env.stack(), color);
+                print_stack(env.stack(), config.color);
             }
         }
         compiler.assembly_mut().root.clear();
