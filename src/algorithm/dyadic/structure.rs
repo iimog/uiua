@@ -13,7 +13,7 @@ use crate::{
     algorithm::{validate_size, FillContext},
     cowslice::{cowslice, extend_repeat_slice, CowSlice},
     grid_fmt::GridFmt,
-    val_as_arr, Array, ArrayValue, FormatShape, Primitive, Shape, Uiua, UiuaResult, Value,
+    val_as_arr, Array, ArrayValue, FormatShape, Indices, Primitive, Shape, Uiua, UiuaResult, Value,
 };
 
 impl<T: Clone> Array<T> {
@@ -105,14 +105,10 @@ impl Value {
     /// Use this array as an index to pick from another
     pub fn pick(self, mut from: Self, env: &Uiua) -> UiuaResult<Self> {
         from.match_fill(env);
-        let (index_shape, index_data) = self.as_shaped_indices(env.is_scalar_filled(&from), env)?;
-        Ok(match from {
-            Value::Num(a) => Value::Num(a.pick(index_shape, &index_data, env)?),
-            Value::Byte(a) => Value::Byte(a.pick(index_shape, &index_data, env)?),
-            Value::Complex(a) => Value::Complex(a.pick(index_shape, &index_data, env)?),
-            Value::Char(a) => Value::Char(a.pick(index_shape, &index_data, env)?),
-            Value::Box(a) => Value::Box(a.pick(index_shape, &index_data, env)?),
-        })
+        let indices = self
+            .as_maybe_filled_index_array::<isize>(env.is_scalar_filled(&from), "")
+            .map_err(|e| env.error(e))?;
+        val_as_arr!(from, |a| a.pick(indices, env).map(Into::into))
     }
     pub(crate) fn undo_pick(self, index: Self, into: Self, env: &Uiua) -> UiuaResult<Self> {
         let (idx_shape, index_data) = index.as_shaped_indices(env.is_scalar_filled(&self), env)?;
@@ -173,29 +169,26 @@ impl Value {
 }
 
 impl<T: ArrayValue> Array<T> {
-    fn pick(&self, index_shape: &[usize], index_data: &[isize], env: &Uiua) -> UiuaResult<Self> {
-        if index_shape.len() <= 1 {
-            self.pick_single(index_data, env)
+    fn pick(&self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
+        if indices.shape.len() <= 1 {
+            self.pick_single(indices, env)
         } else {
-            self.pick_multi(index_shape, index_data, env)
+            self.pick_multi(indices, env)
         }
     }
-    fn pick_multi(
-        &self,
-        index_shape: &[usize],
-        index_data: &[isize],
-        env: &Uiua,
-    ) -> UiuaResult<Self> {
-        let index_row_elems = index_shape[1..].iter().product();
-        let index_last_axis_len = *index_shape.last().unwrap();
+    fn pick_multi(&self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
+        let index_row_len = indices.row_len();
+        let index_last_axis_len = *indices.shape.last().unwrap();
         let mut new_data =
-            CowSlice::with_capacity(index_shape[..index_shape.len() - 1].iter().product());
-        if index_row_elems == 0 {
-            let row = self.pick(&index_shape[1..], index_data, env)?;
-            for _ in 0..index_shape[0] {
+            CowSlice::with_capacity(indices.shape[..indices.shape.len() - 1].iter().product());
+        if index_row_len == 0 {
+            let mut indices = indices;
+            indices.shape = &indices.shape[1..];
+            let row = self.pick(indices, env)?;
+            for _ in 0..indices.shape[0] {
                 new_data.extend_from_slice(&row.data);
             }
-        } else if index_shape[0] == 0 {
+        } else if indices.shape[0] == 0 {
             if index_last_axis_len > self.shape.len() {
                 return Err(env.error(format!(
                     "Cannot pick from rank {} array with index of length {}",
@@ -204,26 +197,26 @@ impl<T: ArrayValue> Array<T> {
                 )));
             }
         } else {
-            for index_row in index_data.chunks(index_row_elems) {
-                let row = self.pick(&index_shape[1..], index_row, env)?;
+            for index_row in indices.chunks_exact(index_row_len) {
+                let row = self.pick(index_row, env)?;
                 new_data.extend_from_slice(&row.data);
             }
         }
-        let mut new_shape = Shape::from(&index_shape[..index_shape.len() - 1]);
+        let mut new_shape = Shape::from(&indices.shape[..indices.shape.len() - 1]);
         new_shape.extend_from_slice(&self.shape[index_last_axis_len..]);
         Ok(Array::new(new_shape, new_data))
     }
-    fn pick_single(&self, index: &[isize], env: &Uiua) -> UiuaResult<Self> {
-        if index.len() > self.rank() {
+    fn pick_single(&self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
+        if indices.len() > self.rank() {
             return Err(env.error(format!(
                 "Cannot pick from rank {} array with index of length {}",
                 self.rank(),
-                index.len()
+                indices.len()
             )));
         }
         let mut picked = self.data.clone();
         let fill = env.scalar_fill::<T>();
-        for (d, (&s, &i)) in self.shape.iter().zip(index).enumerate() {
+        for (d, (&s, i)) in self.shape.iter().zip(indices).enumerate() {
             let row_len: usize = self.shape[d + 1..].iter().product();
             let s = s as isize;
             if i >= s || i < -s {
@@ -252,7 +245,7 @@ impl<T: ArrayValue> Array<T> {
             let end = start + row_len;
             picked = picked.slice(start..end);
         }
-        let shape = Shape::from(&self.shape[index.len()..]);
+        let shape = Shape::from(&self.shape[indices.len()..]);
         Ok(Array::new(shape, picked))
     }
     fn undo_pick(
@@ -979,11 +972,12 @@ impl Value {
     /// Use this value to `select` from another
     pub fn select(self, mut from: Self, env: &Uiua) -> UiuaResult<Self> {
         from.match_fill(env);
-        let (indices_shape, indices_data) =
-            self.as_shaped_indices(env.is_scalar_filled(&from), env)?;
+        let indices = self
+            .as_index_array::<isize>("Indices must be integers")
+            .map_err(|e| env.error(e))?;
         val_as_arr!(from, |a| {
             let mut a = a;
-            a.select(indices_shape, &indices_data, env).map(Into::into)
+            a.select(indices, env).map(Into::into)
         })
     }
     pub(crate) fn undo_select(self, index: Self, into: Self, env: &Uiua) -> UiuaResult<Self> {
@@ -1067,23 +1061,17 @@ impl Value {
     }
     pub(crate) fn anti_select(self, mut from: Self, env: &Uiua) -> UiuaResult<Self> {
         from.match_fill(env);
-        let (indices_shape, indices_data) = self.as_shaped_indices(false, env)?;
-        Ok(match from {
-            Value::Num(a) => Value::Num(a.anti_select(indices_shape, &indices_data, env)?),
-            Value::Byte(a) => Value::Byte(a.anti_select(indices_shape, &indices_data, env)?),
-            Value::Complex(a) => {
-                Value::Complex(a.anti_select(indices_shape, &indices_data, env)?)
-            }
-            Value::Char(a) => Value::Char(a.anti_select(indices_shape, &indices_data, env)?),
-            Value::Box(a) => Value::Box(a.anti_select(indices_shape, &indices_data, env)?),
-        })
+        let indices = self
+            .as_maybe_filled_index_array::<isize>(false, "")
+            .map_err(|e| env.error(e))?;
+        val_as_arr!(from, |a| a.anti_select(indices, env).map(Into::into))
     }
     pub(crate) fn anti_pick(self, mut from: Self, env: &Uiua) -> UiuaResult<Self> {
         from.match_fill(env);
-        let (indices_shape, indices_data) = self.as_shaped_indices(false, env)?;
-        val_as_arr!(from, |a| a
-            .anti_pick(indices_shape, &indices_data, env)
-            .map(Into::into))
+        let indices = self
+            .as_maybe_filled_index_array::<isize>(false, "")
+            .map_err(|e| env.error(e))?;
+        val_as_arr!(from, |a| a.anti_pick(indices, env).map(Into::into))
     }
 }
 
@@ -1106,10 +1094,10 @@ fn normalize_index(index: isize, len: usize) -> usize {
     }
 }
 
-fn indices_are_total(indices: &[isize], row_count: usize) -> bool {
+fn indices_are_total(indices: Indices<isize>, row_count: usize) -> bool {
     let mut max_normal = 0;
     let mut set = HashSet::new();
-    for &i in indices {
+    for i in indices {
         let normalized = normalize_index(i, row_count);
         if set.insert(normalized) {
             max_normal = max_normal.max(normalized);
@@ -1120,17 +1108,13 @@ fn indices_are_total(indices: &[isize], row_count: usize) -> bool {
 
 impl<T: ArrayValue> Array<T> {
     /// `select` from this array
-    fn select(
-        &mut self,
-        indices_shape: &[usize],
-        indices: &[isize],
-        env: &Uiua,
-    ) -> UiuaResult<Self> {
-        if indices_shape.len() > 1 {
-            let row_count = indices_shape[0];
-            let row_len = indices_shape[1..].iter().product();
+    fn select(&mut self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
+        if indices.rank() > 1 {
+            let row_count = indices.row_count();
+            let row_len = indices.row_len();
             if row_len == 0 {
-                let shape: Shape = indices_shape
+                let shape: Shape = indices
+                    .shape
                     .iter()
                     .chain(self.shape.iter().skip(1))
                     .copied()
@@ -1139,7 +1123,7 @@ impl<T: ArrayValue> Array<T> {
             }
             let mut rows = Vec::with_capacity(row_count);
             for indices_row in indices.chunks_exact(row_len) {
-                rows.push(self.select(&indices_shape[1..], indices_row, env)?);
+                rows.push(self.select(indices_row, env)?);
             }
             let mut arr = Array::from_row_arrays(rows, env)?;
             if let Some(label) = &self.meta().label {
@@ -1161,11 +1145,11 @@ impl<T: ArrayValue> Array<T> {
                     let keys = self.take_map_keys().unwrap().normalized();
                     Some(val_as_arr!(keys, |keys| {
                         let mut keys = keys;
-                        keys.select(indices_shape, indices, env).unwrap().into()
+                        keys.select(indices, env).unwrap().into()
                     }))
                 })
                 .flatten();
-            for &i in indices {
+            for i in indices {
                 let i = if i >= 0 {
                     let ui = i as usize;
                     if ui >= row_count {
@@ -1215,7 +1199,7 @@ impl<T: ArrayValue> Array<T> {
             } else {
                 shape.push(indices.len());
             }
-            if indices_shape.is_empty() {
+            if indices.shape.is_empty() {
                 shape.remove(0);
             }
             let mut array = Array::new(shape, selected);
@@ -1352,25 +1336,20 @@ impl<T: ArrayValue> Array<T> {
 
         Ok(into)
     }
-    fn anti_select(
-        self,
-        indices_shape: &[usize],
-        indices: &[isize],
-        env: &Uiua,
-    ) -> UiuaResult<Self> {
+    fn anti_select(self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
         // Validate shape
-        if !self.shape.starts_with(indices_shape) {
+        if !self.shape.starts_with(indices.shape) {
             return Err(env.error(format!(
                 "Cannot invert selection of shape {} array with shape {} indices",
                 self.shape,
-                FormatShape(indices_shape)
+                FormatShape(indices.shape)
             )));
         }
-        let row_shape: Shape = self.shape[indices_shape.len()..].into();
+        let row_shape: Shape = self.shape[indices.shape.len()..].into();
         // Normalize indices
         if let Some(i) = indices
             .iter()
-            .find(|&&i| i < 0 && i.unsigned_abs() > indices.len())
+            .find(|&i| i < 0 && i.unsigned_abs() > indices.len())
         {
             return Err(env.error(format!(
                 "Cannot invert selection with negative index {i}, \
@@ -1380,7 +1359,7 @@ impl<T: ArrayValue> Array<T> {
         }
         let normalized_indices: Vec<usize> = indices
             .iter()
-            .map(|&i| normalize_index(i, indices.len()))
+            .map(|i| normalize_index(i, indices.len()))
             .collect();
         let row_count = normalized_indices
             .iter()
@@ -1447,15 +1426,15 @@ impl<T: ArrayValue> Array<T> {
         shape.insert(0, row_count);
         Ok(Array::new(shape, data))
     }
-    fn anti_pick(self, indices_shape: &[usize], indices: &[isize], env: &Uiua) -> UiuaResult<Self> {
+    fn anti_pick(self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
         // Validate shape
-        let cell_shape = if let [init @ .., _] = indices_shape {
+        let cell_shape = if let [init @ .., _] = indices.shape {
             // if self.shape.len() < init.len() {
             if !self.shape.starts_with(init) {
                 return Err(env.error(format!(
                     "Cannot invert pick of shape {} array with shape {} indices",
                     self.shape,
-                    FormatShape(indices_shape)
+                    FormatShape(indices.shape)
                 )));
             }
             Shape::from(&self.shape[init.len()..])
@@ -1463,16 +1442,16 @@ impl<T: ArrayValue> Array<T> {
             self.shape.clone()
         };
         let cell_size: usize = cell_shape.iter().product();
-        let index_size = indices_shape.last().copied().unwrap_or(1);
-        if indices.iter().any(|&i| i < 0) {
+        let index_size = indices.shape.last().copied().unwrap_or(1);
+        if indices.iter().any(|i| i < 0) {
             return Err(env.error("Cannot invert pick with negative indices"));
         }
         // Normalize indices
         let normalized_indices: Vec<usize> = indices
             .iter()
-            .map(|&i| normalize_index(i, indices.len()))
+            .map(|i| normalize_index(i, indices.len()))
             .collect();
-        let outer_rank = indices_shape.last().copied().unwrap_or(1);
+        let outer_rank = indices.shape.last().copied().unwrap_or(1);
         let mut outer_shape = Shape::from_iter(repeat(0).take(outer_rank));
         if !normalized_indices.is_empty() {
             for index in normalized_indices.chunks_exact(index_size) {
@@ -1486,7 +1465,7 @@ impl<T: ArrayValue> Array<T> {
         }
         let outer_size: usize = outer_shape.iter().product();
         if indices.is_empty() {
-            return Ok(if indices_shape == [0] {
+            return Ok(if indices.shape == [0] {
                 self
             } else {
                 let mut shape = outer_shape;

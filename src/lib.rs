@@ -158,6 +158,7 @@ mod fill;
 pub mod format;
 mod function;
 mod grid_fmt;
+mod index;
 mod lex;
 pub mod lsp;
 mod parse;
@@ -188,6 +189,7 @@ pub use self::{
     error::*,
     ffi::*,
     function::*,
+    index::Indices,
     lex::is_ident_char,
     lex::*,
     lsp::{SpanKind, Spans},
