@@ -612,16 +612,6 @@ impl Value {
         }
         recur(self, false)
     }
-    /// Attempt to convert the array to a list of integers
-    ///
-    /// The `requirement` parameter is used in error messages.
-    pub fn as_ints<C: ErrorContext>(
-        &self,
-        ctx: &C,
-        requirement: &'static str,
-    ) -> Result<Vec<isize>, C::Error> {
-        self.as_number_list(ctx, requirement, |f| f.fract() == 0.0, |f| f as isize)
-    }
     pub(crate) fn as_ints_or_infs(
         &self,
         env: &Uiua,

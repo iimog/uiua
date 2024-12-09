@@ -170,7 +170,7 @@ impl Value {
 
 impl<T: ArrayValue> Array<T> {
     fn pick(&self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
-        if indices.shape.len() <= 1 {
+        if indices.shape().len() <= 1 {
             self.pick_single(indices, env)
         } else {
             self.pick_multi(indices, env)
@@ -178,17 +178,20 @@ impl<T: ArrayValue> Array<T> {
     }
     fn pick_multi(&self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
         let index_row_len = indices.row_len();
-        let index_last_axis_len = *indices.shape.last().unwrap();
-        let mut new_data =
-            CowSlice::with_capacity(indices.shape[..indices.shape.len() - 1].iter().product());
+        let index_last_axis_len = *indices.shape().last().unwrap();
+        let mut new_data = CowSlice::with_capacity(
+            indices.shape()[..indices.shape().len() - 1]
+                .iter()
+                .product(),
+        );
         if index_row_len == 0 {
             let mut indices = indices;
-            indices.shape = &indices.shape[1..];
+            indices.drop_shape_first();
             let row = self.pick(indices, env)?;
-            for _ in 0..indices.shape[0] {
+            for _ in 0..indices.shape()[0] {
                 new_data.extend_from_slice(&row.data);
             }
-        } else if indices.shape[0] == 0 {
+        } else if indices.shape()[0] == 0 {
             if index_last_axis_len > self.shape.len() {
                 return Err(env.error(format!(
                     "Cannot pick from rank {} array with index of length {}",
@@ -202,7 +205,7 @@ impl<T: ArrayValue> Array<T> {
                 new_data.extend_from_slice(&row.data);
             }
         }
-        let mut new_shape = Shape::from(&indices.shape[..indices.shape.len() - 1]);
+        let mut new_shape = Shape::from(&indices.shape()[..indices.shape().len() - 1]);
         new_shape.extend_from_slice(&self.shape[index_last_axis_len..]);
         Ok(Array::new(new_shape, new_data))
     }
@@ -345,25 +348,26 @@ impl Value {
         val_as_arr!(from, |a| a.drop(&index, env).map(Into::into))
     }
     pub(crate) fn undo_take(self, index: Self, into: Self, env: &Uiua) -> UiuaResult<Self> {
-        let index = match index.as_ints(env, "") {
+        let mut indices;
+        let indices = match index.as_index_list::<isize>("") {
             Ok(indices) => indices,
             Err(_) => {
                 let with_infs =
                     index.as_ints_or_infs(env, "Index must be a list of integers or infinity")?;
-                let mut indices = Vec::with_capacity(with_infs.len());
+                indices = Vec::with_capacity(with_infs.len());
                 for (i, d) in with_infs.into_iter().zip(into.shape()) {
                     indices.push(i.unwrap_or(*d as isize));
                 }
-                indices
+                Indices::from(indices.as_slice())
             }
         };
         self.generic_bin_into(
             into,
-            |a, b| a.undo_take(&index, b, env).map(Into::into),
-            |a, b| a.undo_take(&index, b, env).map(Into::into),
-            |a, b| a.undo_take(&index, b, env).map(Into::into),
-            |a, b| a.undo_take(&index, b, env).map(Into::into),
-            |a, b| a.undo_take(&index, b, env).map(Into::into),
+            |a, b| a.undo_take(indices, b, env).map(Into::into),
+            |a, b| a.undo_take(indices, b, env).map(Into::into),
+            |a, b| a.undo_take(indices, b, env).map(Into::into),
+            |a, b| a.undo_take(indices, b, env).map(Into::into),
+            |a, b| a.undo_take(indices, b, env).map(Into::into),
             |a, b| {
                 env.error(format!(
                     "Cannot undo take {} into {}",
@@ -374,25 +378,26 @@ impl Value {
         )
     }
     pub(crate) fn undo_drop(self, index: Self, into: Self, env: &Uiua) -> UiuaResult<Self> {
-        let index = match index.as_ints(env, "") {
+        let mut indices;
+        let indices = match index.as_index_list::<isize>("") {
             Ok(indices) => indices,
             Err(_) => {
                 let with_infs =
                     index.as_ints_or_infs(env, "Index must be a list of integers or infinity")?;
-                let mut indices = Vec::with_capacity(with_infs.len());
+                indices = Vec::with_capacity(with_infs.len());
                 for (i, d) in with_infs.into_iter().zip(into.shape()) {
                     indices.push(i.unwrap_or(*d as isize));
                 }
-                indices
+                Indices::from(indices.as_slice())
             }
         };
         self.generic_bin_into(
             into,
-            |a, b| a.undo_drop(&index, b, env).map(Into::into),
-            |a, b| a.undo_drop(&index, b, env).map(Into::into),
-            |a, b| a.undo_drop(&index, b, env).map(Into::into),
-            |a, b| a.undo_drop(&index, b, env).map(Into::into),
-            |a, b| a.undo_drop(&index, b, env).map(Into::into),
+            |a, b| a.undo_drop(indices, b, env).map(Into::into),
+            |a, b| a.undo_drop(indices, b, env).map(Into::into),
+            |a, b| a.undo_drop(indices, b, env).map(Into::into),
+            |a, b| a.undo_drop(indices, b, env).map(Into::into),
+            |a, b| a.undo_drop(indices, b, env).map(Into::into),
             |a, b| {
                 env.error(format!(
                     "Cannot undo drop {} into {}",
@@ -403,9 +408,11 @@ impl Value {
         )
     }
     pub(crate) fn anti_drop(&self, mut target: Self, env: &Uiua) -> UiuaResult<Self> {
-        let index = self.as_ints(env, "Index must be an integer or list of integers")?;
+        let indices = self
+            .as_index_list("Index must be an integer or list of integers")
+            .map_err(|e| env.error(e))?;
         target.match_fill(env);
-        val_as_arr!(target, |a| a.anti_drop(&index, env).map(Into::into))
+        val_as_arr!(target, |a| a.anti_drop(indices, env).map(Into::into))
     }
     #[track_caller]
     pub(crate) fn drop_n(&mut self, n: usize) {
@@ -714,14 +721,14 @@ impl<T: ArrayValue> Array<T> {
         }
         Ok(arr)
     }
-    fn undo_take(self, index: &[isize], into: Self, env: &Uiua) -> UiuaResult<Self> {
-        self.undo_take_impl("take", "taken", index, into, env)
+    fn undo_take(self, indices: Indices<isize>, into: Self, env: &Uiua) -> UiuaResult<Self> {
+        self.undo_take_impl("take", "taken", indices, into, env)
     }
     fn undo_take_impl(
         self,
         name: &str,
         past: &str,
-        index: &[isize],
+        indices: Indices<isize>,
         mut into: Self,
         env: &Uiua,
     ) -> UiuaResult<Self> {
@@ -752,9 +759,10 @@ impl<T: ArrayValue> Array<T> {
                 )));
             }
         }
-        Ok(match index {
-            [] => into,
-            &[untaking] => {
+        Ok(match indices.len() {
+            0 => into,
+            1 => {
+                let untaking = indices.get(0);
                 let into = into.drop(&[Ok(untaking)], env)?;
                 if untaking >= 0 {
                     from.join(into, true, env)
@@ -762,7 +770,8 @@ impl<T: ArrayValue> Array<T> {
                     into.join(from, true, env)
                 }?
             }
-            &[untaking, ref sub_index @ ..] => {
+            _ => {
+                let (untaking, sub_index) = indices.split_first();
                 let abs_untaking = untaking.unsigned_abs();
                 if abs_untaking != from.row_count() {
                     return Err(env.error(format!(
@@ -790,17 +799,17 @@ impl<T: ArrayValue> Array<T> {
             }
         })
     }
-    fn undo_drop(self, index: &[isize], mut into: Self, env: &Uiua) -> UiuaResult<Self> {
+    fn undo_drop(self, indices: Indices<isize>, mut into: Self, env: &Uiua) -> UiuaResult<Self> {
         if self.map_keys().is_some() {
             return Err(env.error("Cannot undo drop from map array"));
         }
         if into.rank() == 0 {
             into.shape.push(1);
         }
-        let index: Vec<isize> = index
+        let index: Vec<isize> = indices
             .iter()
             .zip(&into.shape)
-            .map(|(&i, &s)| {
+            .map(|(i, &s)| {
                 if i >= 0 {
                     (i - s as isize).min(0)
                 } else {
@@ -808,41 +817,47 @@ impl<T: ArrayValue> Array<T> {
                 }
             })
             .collect();
-        self.undo_take_impl("drop", "dropped", &index, into, env)
+        self.undo_take_impl(
+            "drop",
+            "dropped",
+            Indices::from(index.as_slice()),
+            into,
+            env,
+        )
     }
-    fn anti_drop(mut self, mut index: &[isize], env: &Uiua) -> UiuaResult<Self> {
+    fn anti_drop(mut self, mut indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
         let fill = env.array_fill::<T>().unwrap_or_else(|_| T::proxy().into());
-        if self.shape.len() < index.len() {
+        if self.shape.len() < indices.len() {
             return Err(env.error(format!(
                 "Index array specifies {} axes, \
                 but the array is rank {}",
-                index.len(),
+                indices.len(),
                 self.shape.len()
             )));
         }
         // Validate fill shape
-        if !self.shape[index.len()..].ends_with(&fill.shape) {
+        if !self.shape[indices.len()..].ends_with(&fill.shape) {
             return Err(env.error(format!(
                 "Cannot antidrop {} {} of array with \
                 shape {} with fill of shape {}",
-                index.len(),
-                if index.len() == 1 { "axis" } else { "axes" },
+                indices.len(),
+                if indices.len() == 1 { "axis" } else { "axes" },
                 self.shape,
                 fill.shape
             )));
         }
 
         // Trim trailing zeros
-        while index.last() == Some(&0) {
-            index = &index[..index.len() - 1];
+        while indices.iter().last() == Some(0) {
+            indices.drop_shape_last();
         }
 
-        if index.iter().all(|&p| p == 0) {
+        if indices.iter().all(|p| p == 0) {
             return Ok(self);
         }
 
         // Single axis case
-        if index.len() == 1 {
+        if indices.len() == 1 {
             let row_shape = self.shape.row();
             if !row_shape.ends_with(&fill.shape) {
                 return Err(env.error(format!(
@@ -851,7 +866,7 @@ impl<T: ArrayValue> Array<T> {
                     self.shape, fill.shape
                 )));
             }
-            let n = index[0];
+            let n = indices.get(0);
             let fill_elems = fill.shape.elements();
             let reps = if fill_elems == 0 {
                 0
@@ -869,10 +884,10 @@ impl<T: ArrayValue> Array<T> {
             return Ok(self);
         }
 
-        let n = index.len();
+        let n = indices.len();
         let contig_row_size: usize = self.shape[n - 1..].iter().product();
         let mut new_shape = self.shape.clone();
-        for (p, d) in index.iter().zip(&mut *new_shape) {
+        for (p, d) in indices.iter().zip(&mut *new_shape) {
             *d += p.unsigned_abs();
         }
         let elem_count = validate_size::<T>(new_shape.iter().copied(), env)?;
@@ -887,11 +902,12 @@ impl<T: ArrayValue> Array<T> {
         // Calculate padding numbers
         let mut slice_sizes = Vec::with_capacity(n);
         for i in 0..n {
-            let mut size = index[i].unsigned_abs();
+            let mut size = indices.get(i).unsigned_abs();
             for j in i + 1..self.shape.len() {
-                size *= index.get(j).copied().unwrap_or(0).unsigned_abs() + self.shape[j];
+                size *= if j < indices.len() { indices.get(j) } else { 0 }.unsigned_abs()
+                    + self.shape[j];
             }
-            slice_sizes.push((size / fill.shape.elements()) as isize * index[i].signum());
+            slice_sizes.push((size / fill.shape.elements()) as isize * indices.get(i).signum());
         }
         let cap_size = slice_sizes.remove(0);
         let sliver_size = slice_sizes.pop().unwrap_or(0);
@@ -910,7 +926,7 @@ impl<T: ArrayValue> Array<T> {
             // println!("curr: {curr:?}");
             // Add leading slices
             for i in 0..n - 1 {
-                if i != n - 2 && index[i] > 0 && curr[i + 1..].iter().all(|&c| c == 0) {
+                if i != n - 2 && indices.get(i) > 0 && curr[i + 1..].iter().all(|&c| c == 0) {
                     // println!("  extend {i} {:?}", slice_sizes[i]);
                     extend_repeat_slice(&mut new_data, &fill.data, slice_sizes[i].unsigned_abs());
                 }
@@ -933,7 +949,7 @@ impl<T: ArrayValue> Array<T> {
                     && (curr[i + 1..].iter().enumerate()).all(|(j, &c)| c == maxes[i + 1 + j] - 1)
                 {
                     // println!("  extend {i} {:?}", slice_sizes[i]);
-                    if index[i] < 0 {
+                    if indices.get(i) < 0 {
                         extend_repeat_slice(
                             &mut new_data,
                             &fill.data,
@@ -1114,7 +1130,7 @@ impl<T: ArrayValue> Array<T> {
             let row_len = indices.row_len();
             if row_len == 0 {
                 let shape: Shape = indices
-                    .shape
+                    .shape()
                     .iter()
                     .chain(self.shape.iter().skip(1))
                     .copied()
@@ -1199,7 +1215,7 @@ impl<T: ArrayValue> Array<T> {
             } else {
                 shape.push(indices.len());
             }
-            if indices.shape.is_empty() {
+            if indices.shape().is_empty() {
                 shape.remove(0);
             }
             let mut array = Array::new(shape, selected);
@@ -1338,14 +1354,14 @@ impl<T: ArrayValue> Array<T> {
     }
     fn anti_select(self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
         // Validate shape
-        if !self.shape.starts_with(indices.shape) {
+        if !self.shape.starts_with(indices.shape()) {
             return Err(env.error(format!(
                 "Cannot invert selection of shape {} array with shape {} indices",
                 self.shape,
-                FormatShape(indices.shape)
+                FormatShape(indices.shape())
             )));
         }
-        let row_shape: Shape = self.shape[indices.shape.len()..].into();
+        let row_shape: Shape = self.shape[indices.shape().len()..].into();
         // Normalize indices
         if let Some(i) = indices
             .iter()
@@ -1428,13 +1444,13 @@ impl<T: ArrayValue> Array<T> {
     }
     fn anti_pick(self, indices: Indices<isize>, env: &Uiua) -> UiuaResult<Self> {
         // Validate shape
-        let cell_shape = if let [init @ .., _] = indices.shape {
+        let cell_shape = if let [init @ .., _] = indices.shape() {
             // if self.shape.len() < init.len() {
             if !self.shape.starts_with(init) {
                 return Err(env.error(format!(
                     "Cannot invert pick of shape {} array with shape {} indices",
                     self.shape,
-                    FormatShape(indices.shape)
+                    FormatShape(indices.shape())
                 )));
             }
             Shape::from(&self.shape[init.len()..])
@@ -1442,7 +1458,7 @@ impl<T: ArrayValue> Array<T> {
             self.shape.clone()
         };
         let cell_size: usize = cell_shape.iter().product();
-        let index_size = indices.shape.last().copied().unwrap_or(1);
+        let index_size = indices.shape().last().copied().unwrap_or(1);
         if indices.iter().any(|i| i < 0) {
             return Err(env.error("Cannot invert pick with negative indices"));
         }
@@ -1451,7 +1467,7 @@ impl<T: ArrayValue> Array<T> {
             .iter()
             .map(|i| normalize_index(i, indices.len()))
             .collect();
-        let outer_rank = indices.shape.last().copied().unwrap_or(1);
+        let outer_rank = indices.shape().last().copied().unwrap_or(1);
         let mut outer_shape = Shape::from_iter(repeat(0).take(outer_rank));
         if !normalized_indices.is_empty() {
             for index in normalized_indices.chunks_exact(index_size) {
@@ -1465,7 +1481,7 @@ impl<T: ArrayValue> Array<T> {
         }
         let outer_size: usize = outer_shape.iter().product();
         if indices.is_empty() {
-            return Ok(if indices.shape == [0] {
+            return Ok(if indices.shape() == [0] {
                 self
             } else {
                 let mut shape = outer_shape;

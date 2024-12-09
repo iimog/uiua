@@ -991,10 +991,6 @@ impl Uiua {
     pub fn pop_nats(&mut self) -> UiuaResult<Vec<usize>> {
         self.pop_convert(Value::as_nats)
     }
-    /// Attempt to pop a value and convert it to a list of integers
-    pub fn pop_ints(&mut self) -> UiuaResult<Vec<isize>> {
-        self.pop_convert(Value::as_ints)
-    }
     /// Attempt to pop a value and convert it to a list of numbers
     pub fn pop_nums(&mut self) -> UiuaResult<Vec<f64>> {
         self.pop_convert(Value::as_nums)

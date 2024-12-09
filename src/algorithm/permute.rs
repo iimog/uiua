@@ -1,8 +1,8 @@
 use ecow::EcoVec;
 
 use crate::{
-    get_ops, types::push_empty_rows_value, val_as_arr, Array, ArrayValue, Ops, Primitive, SigNode,
-    Uiua, UiuaResult, Value,
+    get_ops, types::push_empty_rows_value, val_as_arr, Array, ArrayValue, Indices, Ops, Primitive,
+    SigNode, Uiua, UiuaResult, Value,
 };
 
 use super::{monadic::range, table::table_impl, validate_size};
@@ -121,7 +121,7 @@ fn tuple2(f: SigNode, env: &mut Uiua) -> UiuaResult {
             } else {
                 xs.row_count()
             };
-            let range: Value = match range(&[n as isize], env)? {
+            let range: Value = match range(Indices::from([n as isize].as_slice()), env)? {
                 Ok(data) => data.into(),
                 Err(data) => data.into(),
             };

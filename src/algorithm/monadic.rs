@@ -27,7 +27,7 @@ use crate::{
     grid_fmt::GridFmt,
     val_as_arr,
     value::Value,
-    Boxed, Complex, Primitive, Shape, Uiua, UiuaResult,
+    Boxed, Complex, Indices, Primitive, Shape, Uiua, UiuaResult,
 };
 
 use super::{validate_size, ArrayCmpSlice, FillContext};
@@ -432,13 +432,14 @@ where
 impl Value {
     /// Create a `range` array
     pub fn range(&self, env: &Uiua) -> UiuaResult<Self> {
-        let ishape = self.as_ints(
-            env,
-            "Range max should be a single integer \
+        let ishape = self
+            .as_index_list::<isize>(
+                "Range max should be a single integer \
             or a list of integers",
-        )?;
+            )
+            .map_err(|e| env.error(e))?;
         if self.rank() == 0 {
-            let max = ishape[0];
+            let max = ishape.get(0);
             return Ok(if max >= 0 {
                 if max <= 256 {
                     (0..max).map(|i| i as u8).collect()
@@ -456,17 +457,16 @@ impl Value {
         }
         let mut shape = Shape::from_iter(ishape.iter().map(|d| d.unsigned_abs()));
         shape.push(shape.len());
-        let data = range(&ishape, env)?;
+        let data = range(ishape, env)?;
         Ok(match data {
             Ok(data) => Array::new(shape, data).into(),
             Err(data) => Array::new(shape, data).into(),
         })
     }
     pub(crate) fn unshape(&self, env: &Uiua) -> UiuaResult<Self> {
-        let ishape = self.as_ints(
-            env,
-            "Shape should be a single integer or a list of integers",
-        )?;
+        let ishape = self
+            .as_index_list::<isize>("Shape should be a single integer or a list of integers")
+            .map_err(|e| env.error(e))?;
         let shape = Shape::from_iter(ishape.iter().map(|n| n.unsigned_abs()));
         let elems: usize = validate_size::<f64>(shape.iter().copied(), env)?;
         let data = EcoVec::from_iter((0..elems).map(|i| i as f64));
@@ -481,14 +481,14 @@ impl Value {
 }
 
 pub(crate) fn range(
-    shape: &[isize],
+    shape: Indices<isize>,
     env: &Uiua,
 ) -> UiuaResult<Result<CowSlice<f64>, CowSlice<u8>>> {
     if shape.is_empty() {
         return Ok(Err(cowslice![0]));
     }
     let mut prod = 1usize;
-    for &d in shape {
+    for d in shape {
         if d != 0 {
             let (new, overflow) = prod.overflowing_mul(d.unsigned_abs());
             if overflow {
@@ -513,14 +513,14 @@ pub(crate) fn range(
             prod = new;
         }
     }
-    if shape.contains(&0) {
+    if shape.iter().any(|i| i == 0) {
         return Ok(Err(CowSlice::new()));
     }
     let mut len = shape.len();
-    for &item in shape {
+    for item in shape {
         let (new, overflow) = len.overflowing_mul(item.unsigned_abs());
         if overflow || new > 2usize.pow(30) / size_of::<f64>() {
-            let len = shape.len() as f64 * shape.iter().map(|d| *d as f64).product::<f64>();
+            let len = shape.len() as f64 * shape.iter().map(|d| d as f64).product::<f64>();
             return Err(env.error(format!(
                 "Attempting to make a range from shape {} would \
                 create an array with {} elements, which is too large",
@@ -533,7 +533,7 @@ pub(crate) fn range(
     let mut scan = shape
         .iter()
         .rev()
-        .scan(1, |acc, &d| {
+        .scan(1, |acc, d| {
             let old = *acc;
             *acc *= d.unsigned_abs();
             Some(old)
@@ -541,7 +541,7 @@ pub(crate) fn range(
         .collect::<Vec<usize>>();
     scan.reverse();
     let elem_count = shape.len() * shape.iter().map(|d| d.unsigned_abs()).product::<usize>();
-    let any_neg = shape.iter().any(|&d| d < 0);
+    let any_neg = shape.iter().any(|d| d < 0);
     let max = shape.iter().map(|d| d.unsigned_abs()).max().unwrap();
     if max <= 256 && !any_neg {
         validate_size::<u8>([len], env)?;
@@ -550,7 +550,7 @@ pub(crate) fn range(
         for i in 0..elem_count {
             let dim = i % shape.len();
             let index = i / shape.len();
-            data_slice[i] = (index / scan[dim] % shape[dim].unsigned_abs()) as u8;
+            data_slice[i] = (index / scan[dim] % shape.get(dim).unsigned_abs()) as u8;
         }
         Ok(Err(data.into()))
     } else {
@@ -560,8 +560,8 @@ pub(crate) fn range(
         for i in 0..elem_count {
             let dim = i % shape.len();
             let index = i / shape.len();
-            data_slice[i] = (index / scan[dim] % shape[dim].unsigned_abs()) as f64;
-            if shape[dim] < 0 {
+            data_slice[i] = (index / scan[dim] % shape.get(dim).unsigned_abs()) as f64;
+            if shape.get(dim) < 0 {
                 data_slice[i] = -1.0 - data_slice[i];
             }
         }

@@ -1,26 +1,27 @@
-use std::{fmt, marker::PhantomData, ops::Range};
+use std::{fmt, marker::PhantomData, ops::Range, slice};
 
 use crate::{grid_fmt::GridFmt, Value};
 
 /// A wrapper for an array of indices
 pub struct Indices<'a, T> {
-    buffer: Buffer<'a>,
+    buffer: Buffer<'a, T>,
     /// The shape of the indices
-    pub shape: &'a [usize],
+    shape: Result<&'a [usize], usize>,
     pd: PhantomData<T>,
 }
 
-enum Buffer<'a> {
+enum Buffer<'a, T> {
     Num(&'a [f64]),
     Byte(&'a [u8]),
+    Slice(&'a [T]),
 }
 
-impl Clone for Buffer<'_> {
+impl<T> Clone for Buffer<'_, T> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl Copy for Buffer<'_> {}
+impl<T> Copy for Buffer<'_, T> {}
 
 impl<T> Clone for Indices<'_, T> {
     fn clone(&self) -> Self {
@@ -30,45 +31,78 @@ impl<T> Clone for Indices<'_, T> {
 impl<T> Copy for Indices<'_, T> {}
 
 #[allow(missing_docs)]
-impl<T> Indices<'_, T> {
+impl<'a, T> Indices<'a, T> {
     pub fn rank(&self) -> usize {
-        self.shape.len()
+        self.shape().len()
+    }
+    pub fn shape(&self) -> &[usize] {
+        match &self.shape {
+            Ok(shape) => shape,
+            Err(len) => slice::from_ref(len),
+        }
     }
     pub fn row_count(&self) -> usize {
-        self.shape.first().copied().unwrap_or(1)
+        self.shape().first().copied().unwrap_or(1)
     }
     pub fn row_len(&self) -> usize {
-        if self.shape.is_empty() {
+        if self.shape().is_empty() {
             1
         } else {
-            self.shape[1..].iter().product()
+            self.shape()[1..].iter().product()
         }
     }
     pub fn len(&self) -> usize {
         match self.buffer {
             Buffer::Num(arr) => arr.len(),
             Buffer::Byte(arr) => arr.len(),
+            Buffer::Slice(arr) => arr.len(),
         }
     }
     pub fn is_empty(&self) -> bool {
-        self.shape.contains(&0)
+        self.shape().contains(&0)
     }
-    pub fn chunks_exact(&self, chunk_len: usize) -> impl ExactSizeIterator<Item = Self> + '_ {
+    pub fn chunks_exact<'b: 'a>(
+        &'b self,
+        chunk_len: usize,
+    ) -> impl ExactSizeIterator<Item = Self> + 'b {
         assert!(chunk_len > 0, "chunk size cannot be 0");
         assert!(self.len() % chunk_len == 0, "chunk size must divide length");
         (0..self.len() / chunk_len).map(move |i| Indices {
             buffer: self.buffer.slice(i * chunk_len, i * chunk_len + chunk_len),
-            shape: &self.shape[1..],
+            shape: Ok(&self.shape()[1..]),
             pd: PhantomData,
         })
     }
+    pub fn drop_shape_first(&mut self) {
+        match self.shape {
+            Ok(shape) => self.shape = Ok(&shape[1..]),
+            Err(_) => self.shape = Ok(&[]),
+        }
+    }
+    pub fn drop_shape_last(&mut self) {
+        match self.shape {
+            Ok(shape) => self.shape = Ok(&shape[..shape.len() - 1]),
+            Err(_) => self.shape = Ok(&[]),
+        }
+    }
 }
 
-impl Buffer<'_> {
+impl<'a, T> From<&'a [T]> for Indices<'a, T> {
+    fn from(slice: &'a [T]) -> Self {
+        Self {
+            buffer: Buffer::Slice(slice),
+            shape: Err(slice.len()),
+            pd: PhantomData,
+        }
+    }
+}
+
+impl<T> Buffer<'_, T> {
     pub fn slice(&self, start: usize, end: usize) -> Self {
         match self {
             Buffer::Num(arr) => Buffer::Num(&arr[start..end]),
             Buffer::Byte(arr) => Buffer::Byte(&arr[start..end]),
+            Buffer::Slice(arr) => Buffer::Slice(&arr[start..end]),
         }
     }
 }
@@ -86,11 +120,25 @@ impl<T: IndexFromElem> Indices<'_, T> {
                 }
             }
             Buffer::Byte(arr) => T::from_u8(arr[i]),
+            Buffer::Slice(arr) => arr[i],
         }
     }
     /// Iterate over the indices
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = T> + '_ {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = T> + DoubleEndedIterator + '_ {
         (0..self.len()).map(move |i| self.get(i))
+    }
+    /// Split the indices into the first element and the rest
+    #[track_caller]
+    pub fn split_first(mut self) -> (T, Self) {
+        let Err(n) = self.shape else {
+            panic!("Cannot split first rank 2+ array")
+        };
+        if n == 0 {
+            panic!("Cannot split first empty array")
+        }
+        let first = self.get(0);
+        self.shape = Err(n - 1);
+        (first, self)
     }
 }
 
@@ -133,7 +181,7 @@ impl Value {
     pub fn as_index_list<T: IndexFromElem>(
         &self,
         mut expectation: &str,
-    ) -> Result<Indices<'_, usize>, String> {
+    ) -> Result<Indices<'_, T>, String> {
         if expectation.is_empty() {
             expectation = T::default_expectation();
         }
@@ -164,13 +212,21 @@ impl Value {
                 }
                 Indices {
                     buffer: Buffer::Num(&arr.data),
-                    shape: &arr.shape,
+                    shape: if let [n] = &*arr.shape {
+                        Err(*n)
+                    } else {
+                        Ok(arr.shape())
+                    },
                     pd: PhantomData,
                 }
             }
             Value::Byte(arr) => Indices {
                 buffer: Buffer::Byte(&arr.data),
-                shape: &arr.shape,
+                shape: if let [n] = &*arr.shape {
+                    Err(*n)
+                } else {
+                    Ok(arr.shape())
+                },
                 pd: PhantomData,
             },
             value => {
@@ -210,13 +266,21 @@ impl Value {
                 }
                 Indices {
                     buffer: Buffer::Num(&arr.data),
-                    shape: &arr.shape,
+                    shape: if let [n] = &*arr.shape {
+                        Err(*n)
+                    } else {
+                        Ok(arr.shape())
+                    },
                     pd: PhantomData,
                 }
             }
             Value::Byte(arr) => Indices {
                 buffer: Buffer::Byte(&arr.data),
-                shape: &arr.shape,
+                shape: if let [n] = &*arr.shape {
+                    Err(*n)
+                } else {
+                    Ok(arr.shape())
+                },
                 pd: PhantomData,
             },
             value => {
@@ -251,7 +315,7 @@ impl fmt::Display for IntoIndexError {
 }
 
 /// A trait for types that can be used as array indices
-pub trait IndexFromElem: Sized {
+pub trait IndexFromElem: Copy {
     /// The maximum value of this type
     const MAX: Self;
     /// The default expectation message

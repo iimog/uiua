@@ -10,7 +10,7 @@ use std::{
     cmp::Ordering,
     hash::{DefaultHasher, Hash, Hasher},
     iter::{once, repeat},
-    mem::{replace, swap, take, transmute},
+    mem::{replace, swap, take},
 };
 
 use ecow::{eco_vec, EcoVec};
@@ -24,7 +24,7 @@ use crate::{
     cowslice::{cowslice, CowSlice, Repeat},
     val_as_arr,
     value::Value,
-    Shape, Uiua, UiuaResult, RNG,
+    Indices, Shape, Uiua, UiuaResult, RNG,
 };
 
 use super::{
@@ -1455,31 +1455,32 @@ impl Array<f64> {
     }
 }
 
-fn derive_undices(mut indices: Vec<isize>, rank: usize, env: &Uiua) -> UiuaResult<Vec<usize>> {
-    for i in &mut indices {
-        let u = (*i).unsigned_abs();
-        if *i >= 0 && u >= rank || *i < 0 && u > rank {
+fn derive_undices(indices: Indices<isize>, rank: usize, env: &Uiua) -> UiuaResult<Vec<usize>> {
+    let mut undices = Vec::with_capacity(indices.len());
+    for i in indices {
+        let u = (i).unsigned_abs();
+        if i >= 0 && u >= rank || i < 0 && u > rank {
             return Err(env.error(format!("Cannot orient axis {i} in array of rank {rank}")));
         }
-        *i = if *i >= 0 {
-            u as isize
-        } else {
-            (rank - u) as isize
-        };
+        undices.push(if i >= 0 { u } else { rank - u });
     }
-    Ok(unsafe { transmute::<Vec<isize>, Vec<usize>>(indices) })
+    Ok(undices)
 }
 
 impl Value {
     /// `orient` a value by this value
     pub fn orient(&self, target: &mut Self, env: &Uiua) -> UiuaResult {
-        let indices = self.as_ints(env, "Orient indices must be integers")?;
+        let indices = self
+            .as_index_list::<isize>("Orient indices must be integers")
+            .map_err(|e| env.error(e))?;
         let undices = derive_undices(indices, target.rank(), env)?;
         target.match_fill(env);
         val_as_arr!(target, |a| a.orient(undices, env))
     }
     pub(crate) fn anti_orient(&self, target: Self, env: &Uiua) -> UiuaResult<Self> {
-        let indices = self.as_ints(env, "Unorient indices must be integers")?;
+        let indices = self
+            .as_index_list::<isize>("Unorient indices must be integers")
+            .map_err(|e| env.error(e))?;
         let undices = derive_undices(indices, target.rank(), env)?;
         val_as_arr!(target, |a| a.anti_orient(undices, env).map(Into::into))
     }
@@ -1489,7 +1490,9 @@ impl Value {
         into: Self,
         env: &Uiua,
     ) -> UiuaResult<Self> {
-        let indices = indices.as_ints(env, "Orient indices must be integers")?;
+        let indices = indices
+            .as_index_list::<isize>("Orient indices must be integers")
+            .map_err(|e| env.error(e))?;
         let undices = derive_undices(indices, self.rank(), env)?;
         self.generic_bin_into(
             into,
