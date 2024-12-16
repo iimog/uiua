@@ -136,9 +136,7 @@ pub(crate) fn validate_size_impl(
         elements *= size as f64;
     }
     let size = elements * elem_size as f64;
-    let max_mega = if cfg!(target_arch = "wasm32") {
-        256
-    } else if cfg!(target_arch = "x86") {
+    let max_mega = if cfg!(target_pointer_width = "32") {
         256
     } else {
         4096
